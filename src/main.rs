@@ -2,10 +2,10 @@ use reqwest::Url;
 use eyre::WrapErr;
 use tokio_tungstenite::connect_async;
 
-mod util;
-
-use util::install_eyre;
 use sadmadbotlad::ApiInfo;
+
+mod util;
+use util::install_eyre;
 
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
