@@ -1,144 +1,170 @@
-#![allow(unused)]
-use axum::{http, response::IntoResponse, Extension};
 use eyre::WrapErr;
-use futures_util::TryStreamExt;
-use hyper::StatusCode;
-use std::{collections::VecDeque, sync::Arc};
-use tokio::sync::RwLock;
-use twitch_api::{
-    eventsub::{
-        stream::{StreamOnlineV1, StreamOnlineV1Payload},
-        Event, EventType, Status,
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use twitch_api::types::{self, Timestamp};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LiveStatus {
+    Live {
+        started_at: types::Timestamp,
+        url: String,
     },
-    helix::{
-        self,
-        eventsub::{
-            CreateEventSubSubscriptionBody, CreateEventSubSubscriptionRequest,
-            GetEventSubSubscriptionsRequest,
-        },
+    Offline {
+        url: String,
     },
-    HelixClient,
-};
-use twitch_oauth2::AppAccessToken;
-
-use crate::{ApiInfo, Config};
-
-pub async fn eventsub(
-    Extension(config): Extension<Arc<Config>>,
-    Extension(api_info): Extension<Arc<ApiInfo>>,
-    request: http::Request<axum::body::Body>,
-) -> impl IntoResponse {
-    let (parts, body) = request.into_parts();
-
-    let body = hyper::body::to_bytes(body).await.unwrap();
-
-    let request = http::Request::from_parts(parts, &body);
-
-    println!("got event {}", std::str::from_utf8(&body).unwrap());
-    println!("got event headers {:?}", request.headers());
-
-    if !Event::verify_payload(&request, api_info.secret()) {
-        return (StatusCode::BAD_REQUEST, "Invalid signature".to_string());
-    }
-
-    if let Some(id) = request.headers().get("Twitch-Eventsub-Message-Id") {
-        println!("got already seen event");
-        return (StatusCode::OK, "".to_string());
-    }
-
-    let event = Event::parse_http(&request).unwrap();
-
-    if let Some(ver) = event.get_verification_request() {
-        println!("subscription was verified");
-        return (StatusCode::OK, ver.challenge.clone());
-    }
-
-    if event.is_revocation() {
-        println!("subscription was revoked");
-        return (StatusCode::OK, "".to_string());
-    }
-
-    use twitch_api::eventsub::{Message, Payload};
-
-    match event {
-        Event::StreamOnlineV1(Payload {
-            message:
-                Message::Notification(StreamOnlineV1Payload {
-                    broadcaster_user_id,
-                    broadcaster_user_name,
-                    started_at,
-                    ..
-                }),
-            ..
-        }) => {
-            println!("{broadcaster_user_name} is streaming");
-        }
-        _ => {}
-    }
-
-    (StatusCode::OK, String::default())
 }
 
-pub async fn eventsub_register(
-    token: Arc<RwLock<AppAccessToken>>,
-    config: Arc<Config>,
-    client: HelixClient<'static, reqwest::Client>,
-    website: String,
-    sign_secret: String,
-) -> eyre::Result<()> {
-
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
-    // check every day
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(24 * 60 * 60));
-
-    loop {
-        // check if already registered
-        interval.tick().await;
-
-        println!("checking subs");
-
-        let req = GetEventSubSubscriptionsRequest::status(Status::Enabled);
-
-        let subs = helix::make_stream(req, &*token.read().await, &client, |res| {
-            VecDeque::from(res.subscriptions)
-        })
-        .try_collect::<Vec<_>>()
-        .await?;
-
-        let online_exists = subs.iter().any(|sub| {
-            sub.transport.callback == website
-                && sub.type_ == EventType::StreamOnline
-                && sub.version == "1"
-                && sub
-                    .condition
-                    .as_object()
-                    .expect("a stream.online event did not contain broadcaster")
-                    .get("broadcaster_user_id")
-                    .unwrap()
-                    .as_str()
-                    == Some(config.broadcaster.id.as_str())
-        });
-
-        println!("got existing subs");
-
-        drop(subs);
-
-        if !online_exists {
-            let request = CreateEventSubSubscriptionRequest::new();
-
-            let body = CreateEventSubSubscriptionBody::new(
-                StreamOnlineV1::broadcaster_user_id(config.broadcaster.id.clone()),
-                twitch_api::eventsub::Transport::webhook(
-                    website.clone(),
-                    sign_secret.clone(),
-                ),
-            );
-
-            client
-                .req_post(request, body, &*token.read().await)
-                .await
-                .wrap_err_with(|| "when registering online event")?;
-        }
+impl LiveStatus {
+    /// Returns `true` if the live status is [`Live`].
+    ///
+    /// [`Live`]: LiveStatus::Live
+    pub fn is_live(&self) -> bool {
+        matches!(self, Self::Live { .. })
     }
+
+    /// Returns `true` if the live status is [`Offline`].
+    ///
+    /// [`Offline`]: LiveStatus::Offline
+    pub fn is_offline(&self) -> bool {
+        matches!(self, Self::Offline { .. })
+    }
+
+    pub fn to_message(&self) -> eyre::Result<tokio_tungstenite::tungstenite::Message> {
+        #[derive(serde::Serialize)]
+        struct Msg {
+            html: String,
+            live: bool,
+        }
+        let msg = match self {
+            Self::Live { .. } => Msg {
+                html: "Yes".to_string(),
+                live: true,
+            },
+            Self::Offline { .. } => Msg {
+                html: "No".to_string(),
+                live: false,
+            },
+        };
+        Ok(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::to_string(&msg).wrap_err_with(|| "could not make into a message")?,
+        ))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WsEventSub {
+    pub metadata: WsMetaData,
+    pub payload: WsPayload,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WsMetaData {
+    message_id: String,
+    message_type: String,
+    message_timestamp: Timestamp,
+    subscription_type: Option<String>,
+    subscription_version: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WsPayload {
+    pub session: Option<WsSession>,
+    pub subscription: Option<WsSubscription>,
+    pub event: Option<WsEvent>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WsSubscription {
+    pub id: String,
+    pub status: String,
+    pub r#type: String,
+    version: String,
+    condition: WsCondition,
+    transport: WsTransport,
+    created_at: Timestamp,
+    cost: u8,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WsCondition {
+    broadcaster_user_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WsTransport {
+    method: String,
+    session_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WsSession {
+    pub id: String,
+    pub status: String,
+    pub connected_at: Timestamp,
+    pub keepalive_timeout_seconds: u32,
+    pub reconnect_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WsEvent {
+    user_id: Option<String>,
+    user_login: Option<String>,
+    user_name: Option<String>,
+    broadcaster_user_id: String,
+    broadcaster_user_login: String,
+    broadcaster_user_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EventSub {
+    r#type: String,
+    version: u8,
+    condition: EventSubCondition,
+    transport: WsTransport,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EventSubCondition {
+    broadcaster_user_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct EventSubResponse {
+    pub data: Vec<WsSubscription>,
+    total_cost: u16,
+    max_total_cost: u32,
+    pagination: Pagination
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Pagination {
+    cursor: Option<String>
+}
+
+pub fn online_event(session_id: String) -> Value {
+    json!({
+        "type": "stream.online",
+        "version": "1",
+        "condition": {
+            "broadcaster_user_id": "143306668" //110644052
+        },
+        "transport": {
+            "method": "websocket",
+            "session_id": session_id
+        }
+    })
+}
+
+pub fn offline_event(session_id: String) -> Value {
+    json!({
+        "type": "stream.offline",
+        "version": "1",
+        "condition": {
+            "broadcaster_user_id": "143306668"
+        },
+        "transport": {
+            "method": "websocket",
+            "session_id": session_id
+        }
+    })
 }

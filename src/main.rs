@@ -1,47 +1,33 @@
-#![allow(unused)]
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
-use axum::{routing::post, Extension, Router};
-use envy;
 use eyre::WrapErr;
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
+use reqwest::Url;
 use serde::Deserialize;
-use tokio::task::JoinHandle;
-use twitch_api::{client::ClientDefault, HelixClient};
+use serde_json::json;
+use tokio::{net::TcpStream, sync::watch, task::JoinHandle};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use twitch::{EventSub, LiveStatus, EventSubResponse};
 
 mod discord;
 mod twitch;
 mod util;
 
-// use discord::send_notification;
+use discord::send_notification;
 use util::install_eyre;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiInfo {
-    /// Client ID of twitch application
-    pub client_id: twitch_oauth2::ClientId,
-    /// Client Secret of twitch application
+use crate::twitch::{WsEventSub, online_event, offline_event};
+
+#[derive(Deserialize)]
+struct ApiInfo {
+    client_id: twitch_oauth2::ClientId,
+    pub twitch_oauth: String,
     pub client_secret: twitch_oauth2::ClientSecret,
+    pub secret: String,
     pub broadcaster_login: twitch_api::types::UserName,
-    pub website_callback: String,
-    pub website: String,
-    secret: String,
-}
-
-impl ApiInfo {
-    pub fn secret(&self) -> &[u8] {
-        return self.secret.as_bytes();
-    }
-
-    pub fn secret_str(&self) -> &str {
-        return &self.secret;
-    }
-}
-
-#[derive(Debug)]
-pub struct Config {
-    broadcaster: twitch_api::helix::users::User,
-    broadcaster_url: String,
-    website_url: String,
 }
 
 #[tokio::main]
@@ -49,86 +35,33 @@ async fn main() -> Result<(), eyre::Report> {
     // send_notification().await?;
     install_eyre()?;
 
-    match envy::from_env::<ApiInfo>() {
-        Ok(api_info) => {
-            run(api_info)
-                .await
-                .with_context(|| "when running application")?;
-        }
-        Err(e) => panic!("{e}"),
-    }
+    run().await.with_context(|| "when running application")?;
 
     Ok(())
 }
 
-async fn run(api_info: ApiInfo) -> Result<(), eyre::Report> {
-    let client: HelixClient<'static, _> = twitch_api::HelixClient::with_client(
-        <reqwest::Client>::default_client_with_name(Some(
-            "twitch-rs/eventsub"
-                .parse()
-                .wrap_err_with(|| "when creating header name")
-                .unwrap(),
-        ))
-        .wrap_err_with(|| "when creating client")?,
-    );
+async fn run() -> Result<(), eyre::Report> {
+    match envy::from_env::<ApiInfo>() {
+        Ok(api_info) => {
+            let (socket, _response) = connect_async(
+                Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"),
+            )
+            .await?;
 
-    let token = twitch_oauth2::AppAccessToken::get_app_access_token(
-        &client,
-        api_info.client_id.clone(),
-        api_info.client_secret.clone(),
-        vec![],
-    )
-    .await?;
+            let _live = LiveStatus::Offline {
+                url: String::from("https://twitch.tv/sadmadladsalman"),
+            };
+            
+            delete_subs(api_info.client_id, api_info.twitch_oauth).await?;
+            
+            // let (sender, recv) = watch::channel(live);
 
-    let broadcaster = client
-        .get_user_from_login(&api_info.broadcaster_login, &token)
-        .await?
-        .ok_or_else(|| eyre::eyre!("broadcaster not found"))?;
-
-    let config = Arc::new(Config {
-        broadcaster_url: format!("https://twitch.tv/{}", broadcaster.login),
-        broadcaster,
-        website_url: api_info.website.clone(),
-    });
-
-    let token = Arc::new(tokio::sync::RwLock::new(token));
-
-    let app = Router::new()
-        .route(
-            "/twitch/eventsub",
-            post(move |config, api_info, request| twitch::eventsub(config, api_info, request)),
-        )
-        .layer(
-            tower::ServiceBuilder::new()
-                .layer(Extension(client.clone()))
-                .layer(Extension(config.clone()))
-                .layer(Extension(Arc::new(api_info.clone()))),
-        );
-
-    let server = tokio::spawn(async move {
-        axum::Server::bind(
-            &"0.0.0.0:4000"
-                .parse()
-                .wrap_err_with(|| "when parsing address")?,
-        )
-        .serve(app.into_make_service())
-        .await
-        .wrap_err_with(|| "when serving")?;
-        Ok::<(), eyre::Report>(())
-    });
-
-    let run = tokio::try_join!(
-        flatten(server),
-        flatten(tokio::spawn(twitch::eventsub_register(
-            token.clone(),
-            config.clone(),
-            client.clone(),
-            api_info.website_callback.clone(),
-            api_info.secret_str().to_string(),
-        ))),
-    );
-
-    run?;
+            handle_socket(socket).await;
+        }
+        Err(e) => {
+            panic!("Api Info {e}");
+        }
+    }
 
     Ok(())
 }
@@ -140,3 +73,149 @@ async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, ey
         Err(e) => Err(e).wrap_err_with(|| "handling failed"),
     }
 }
+
+async fn handle_socket(
+    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    // watch: watch::Receiver<LiveStatus>,
+) {
+    let (sender, receiver) = socket.split();
+
+    if let Err(e) = tokio::try_join!(
+        // flatten(tokio::spawn(write(sender, watch))),
+        flatten(tokio::spawn(read(receiver, sender)))
+    )
+    .wrap_err_with(|| "in stream join")
+    {
+        eprintln!("socket failed {e}")
+    }
+}
+
+async fn read(
+    mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+) -> Result<(), eyre::Report> {
+    while let Some(msg) = recv.next().await {
+        match msg {
+            Ok(Message::Ping(_)) => {
+                // println!("ping");
+                sender.send(Message::Pong(vec![])).await?;
+            }
+            Ok(msg) => {
+                let msg = msg.to_string();
+                if msg.contains("connection unused") {
+                    println!("{msg}");
+                    return Err(eyre::Report::msg("connection unsed... disconnecting"));
+                }
+                let json_msg = match serde_json::from_str::<WsEventSub>(&msg) {
+                    Ok(json_msg) => json_msg,
+                    Err(e) => {
+                        panic!("eventsub json Error: {} \n\n Message: {}", e, msg);
+                    }
+                };
+                
+                if let Some(session_id) = json_msg.payload.session {
+                    let http_client = reqwest::Client::new();
+
+                    let response = http_client
+                        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+                        .header(
+                            "Authorization",
+                            format!(
+                                "Bearer {}",
+                                std::env::var("TWITCH_OAUTH").expect("twitch oauth token")
+                            ),
+                        )
+                        .header("Client-Id", std::env::var("CLIENT_ID").expect("twitch client id"))
+                        .json(&online_event(session_id.id.clone()))
+                        .send()
+                        .await?
+                        .text()
+                        .await?;
+
+                    println!("{:?}", response);
+
+                    let response = http_client
+                        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+                        .header(
+                            "Authorization",
+                            format!(
+                                "Bearer {}",
+                                std::env::var("TWITCH_OAUTH").expect("twitch oauth token")
+                            ),
+                        )
+                        .header("Client-Id", std::env::var("CLIENT_ID").expect("twitch client id"))
+                        .json(&offline_event(session_id.id))
+                        .send()
+                        .await?
+                        .text()
+                        .await?;
+                    // let response = serde_json::from_str(&response);
+
+                    println!("{:?}", response);
+                } else if let Some(subscription) = json_msg.payload.subscription {
+                    println!("{subscription:?}");
+                    println!("change is_live state or just send in discord");
+
+                    if subscription.r#type == "stream.online" {
+                        send_notification().await?;
+                    }
+                }
+            }
+            Err(e) => println!("{e}"),
+        }
+    }
+    Ok(())
+}
+
+// Sends live status to clients.
+async fn write(
+    mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    mut watch: watch::Receiver<LiveStatus>,
+) -> Result<(), eyre::Report> {
+    while watch.changed().await.is_ok() {
+        let val = watch.borrow().clone();
+
+        let Ok(msg) = val.to_message() else {
+            continue;
+        };
+
+        if let Err(error) = sender.send(msg).await {
+            if let Some(e) = error.source() {
+                let Some(tokio_tungstenite::tungstenite::error::Error::ConnectionClosed) =
+                    e.downcast_ref()
+                else {
+                    return Err(error.into());
+                };
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn delete_subs(client_id: twitch_oauth2::ClientId, twitch_oauth: String) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+    
+    let subs = http_client.get("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(twitch_oauth.clone())
+        .header("Client-Id", client_id.as_str())
+        .send().await?
+        .json::<EventSubResponse>()
+        .await?;
+    
+    for sub in subs.data {
+        
+        println!("deleting sub with id {}", sub.id);
+        
+        http_client.delete("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(twitch_oauth.clone())
+        .header("Client-Id", client_id.as_str())
+        .json(&json!({
+                "id": sub.id
+            }))
+        .send().await?;
+
+    }
+    
+    Ok(())
+}
+
