@@ -1,6 +1,5 @@
 use std::time::SystemTime;
 
-use reqwest;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -33,7 +32,7 @@ pub async fn send_notification() -> Result<(), reqwest::Error> {
         embeds: vec![Embed {
             title: String::from("Watch stream"),
             url: String::from("https://www.twitch.tv/sadmadladsalman"),
-            image: Image { 
+            image: Image {
                 url: format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_sadmadladsalman-320x180.jpg?something={}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
             }
         }],

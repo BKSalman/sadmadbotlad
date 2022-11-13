@@ -1,4 +1,4 @@
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use eyre::WrapErr;
 use futures_util::{
@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::{net::TcpStream, sync::watch, task::JoinHandle};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
-use twitch::{EventSub, LiveStatus, EventSubResponse};
+use twitch::{EventSubResponse, LiveStatus};
 
 mod discord;
 mod twitch;
@@ -19,7 +19,7 @@ mod util;
 use discord::send_notification;
 use util::install_eyre;
 
-use crate::twitch::{WsEventSub, online_event, offline_event};
+use crate::twitch::{offline_event, online_event, WsEventSub};
 
 #[derive(Deserialize)]
 struct ApiInfo {
@@ -51,9 +51,9 @@ async fn run() -> Result<(), eyre::Report> {
             let _live = LiveStatus::Offline {
                 url: String::from("https://twitch.tv/sadmadladsalman"),
             };
-            
+
             delete_subs(api_info.client_id, api_info.twitch_oauth).await?;
-            
+
             // let (sender, recv) = watch::channel(live);
 
             handle_socket(socket).await;
@@ -112,7 +112,7 @@ async fn read(
                         panic!("eventsub json Error: {} \n\n Message: {}", e, msg);
                     }
                 };
-                
+
                 if let Some(session_id) = json_msg.payload.session {
                     let http_client = reqwest::Client::new();
 
@@ -125,7 +125,10 @@ async fn read(
                                 std::env::var("TWITCH_OAUTH").expect("twitch oauth token")
                             ),
                         )
-                        .header("Client-Id", std::env::var("CLIENT_ID").expect("twitch client id"))
+                        .header(
+                            "Client-Id",
+                            std::env::var("CLIENT_ID").expect("twitch client id"),
+                        )
                         .json(&online_event(session_id.id.clone()))
                         .send()
                         .await?
@@ -143,7 +146,10 @@ async fn read(
                                 std::env::var("TWITCH_OAUTH").expect("twitch oauth token")
                             ),
                         )
-                        .header("Client-Id", std::env::var("CLIENT_ID").expect("twitch client id"))
+                        .header(
+                            "Client-Id",
+                            std::env::var("CLIENT_ID").expect("twitch client id"),
+                        )
                         .json(&offline_event(session_id.id))
                         .send()
                         .await?
@@ -192,30 +198,34 @@ async fn write(
     Ok(())
 }
 
-async fn delete_subs(client_id: twitch_oauth2::ClientId, twitch_oauth: String) -> Result<(), eyre::Report> {
+async fn delete_subs(
+    client_id: twitch_oauth2::ClientId,
+    twitch_oauth: String,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
-    
-    let subs = http_client.get("https://api.twitch.tv/helix/eventsub/subscriptions")
+
+    let subs = http_client
+        .get("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(twitch_oauth.clone())
         .header("Client-Id", client_id.as_str())
-        .send().await?
+        .send()
+        .await?
         .json::<EventSubResponse>()
         .await?;
-    
+
     for sub in subs.data {
-        
         println!("deleting sub with id {}", sub.id);
-        
-        http_client.delete("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(twitch_oauth.clone())
-        .header("Client-Id", client_id.as_str())
-        .json(&json!({
+
+        http_client
+            .delete("https://api.twitch.tv/helix/eventsub/subscriptions")
+            .bearer_auth(twitch_oauth.clone())
+            .header("Client-Id", client_id.as_str())
+            .json(&json!({
                 "id": sub.id
             }))
-        .send().await?;
-
+            .send()
+            .await?;
     }
-    
+
     Ok(())
 }
-

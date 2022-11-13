@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use twitch_api::types::{self, Timestamp};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LiveStatus {
     Live {
         started_at: types::Timestamp,
@@ -133,12 +133,12 @@ pub struct EventSubResponse {
     pub data: Vec<WsSubscription>,
     total_cost: u16,
     max_total_cost: u32,
-    pagination: Pagination
+    pagination: Pagination,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Pagination {
-    cursor: Option<String>
+    cursor: Option<String>,
 }
 
 pub fn online_event(session_id: String) -> Value {
