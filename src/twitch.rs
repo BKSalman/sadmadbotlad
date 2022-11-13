@@ -57,6 +57,7 @@ pub struct WsEventSub {
     pub payload: WsPayload,
 }
 
+#[allow(unused)]
 #[derive(Debug, Deserialize)]
 pub struct WsMetaData {
     message_id: String,
@@ -105,6 +106,7 @@ pub struct WsSession {
     pub reconnect_url: Option<String>,
 }
 
+#[allow(unused)]
 #[derive(Debug, Deserialize)]
 pub struct WsEvent {
     user_id: Option<String>,
@@ -139,6 +141,23 @@ pub struct EventSubResponse {
 #[derive(Debug, Deserialize, Serialize)]
 struct Pagination {
     cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct TwitchApiResponse {
+    pub data: Vec<TwitchChannelInfo>
+}
+
+#[derive(Deserialize)]
+pub struct TwitchChannelInfo {
+    pub broadcaster_id: String,
+    pub broadcaster_login: String,
+    pub broadcaster_name: String,
+    pub broadcaster_language: String,
+    pub game_id: String,
+    pub game_name: String,
+    pub title: String,
+    pub delay: u32,
 }
 
 pub fn online_event(session_id: String) -> Value {

@@ -20,7 +20,7 @@ struct Message {
     embeds: Vec<Embed>,
 }
 
-pub async fn send_notification() -> Result<(), reqwest::Error> {
+pub async fn send_notification(title: &str) -> Result<(), reqwest::Error> {
     let http_client = reqwest::Client::new();
 
     let Ok(discord_token) = std::env::var("DISCORD_TOKEN") else {
@@ -28,7 +28,7 @@ pub async fn send_notification() -> Result<(), reqwest::Error> {
     };
 
     let message = Message {
-        content: String::from("streaming :)"),
+        content: format!("<@&897124518374559794>\nSalman is streaming\n{}", title),
         embeds: vec![Embed {
             title: String::from("Watch stream"),
             url: String::from("https://www.twitch.tv/sadmadladsalman"),
