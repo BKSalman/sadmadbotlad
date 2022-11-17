@@ -1,55 +1,54 @@
-use eyre::WrapErr;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use twitch_api::types::{self, Timestamp};
+use twitch_api::types::Timestamp;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LiveStatus {
-    Live {
-        started_at: types::Timestamp,
-        url: String,
-    },
-    Offline {
-        url: String,
-    },
-}
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub enum LiveStatus {
+//     Live {
+//         started_at: types::Timestamp,
+//         url: String,
+//     },
+//     Offline {
+//         url: String,
+//     },
+// }
 
-impl LiveStatus {
-    /// Returns `true` if the live status is [`Live`].
-    ///
-    /// [`Live`]: LiveStatus::Live
-    pub fn is_live(&self) -> bool {
-        matches!(self, Self::Live { .. })
-    }
+// impl LiveStatus {
+//     /// Returns `true` if the live status is [`Live`].
+//     ///
+//     /// [`Live`]: LiveStatus::Live
+//     pub fn is_live(&self) -> bool {
+//         matches!(self, Self::Live { .. })
+//     }
 
-    /// Returns `true` if the live status is [`Offline`].
-    ///
-    /// [`Offline`]: LiveStatus::Offline
-    pub fn is_offline(&self) -> bool {
-        matches!(self, Self::Offline { .. })
-    }
+//     /// Returns `true` if the live status is [`Offline`].
+//     ///
+//     /// [`Offline`]: LiveStatus::Offline
+//     pub fn is_offline(&self) -> bool {
+//         matches!(self, Self::Offline { .. })
+//     }
 
-    pub fn to_message(&self) -> eyre::Result<tokio_tungstenite::tungstenite::Message> {
-        #[derive(serde::Serialize)]
-        struct Msg {
-            html: String,
-            live: bool,
-        }
-        let msg = match self {
-            Self::Live { .. } => Msg {
-                html: "Yes".to_string(),
-                live: true,
-            },
-            Self::Offline { .. } => Msg {
-                html: "No".to_string(),
-                live: false,
-            },
-        };
-        Ok(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::to_string(&msg).wrap_err_with(|| "could not make into a message")?,
-        ))
-    }
-}
+//     pub fn to_message(&self) -> eyre::Result<tokio_tungstenite::tungstenite::Message> {
+//         #[derive(serde::Serialize)]
+//         struct Msg {
+//             html: String,
+//             live: bool,
+//         }
+//         let msg = match self {
+//             Self::Live { .. } => Msg {
+//                 html: "Yes".to_string(),
+//                 live: true,
+//             },
+//             Self::Offline { .. } => Msg {
+//                 html: "No".to_string(),
+//                 live: false,
+//             },
+//         };
+//         Ok(tokio_tungstenite::tungstenite::Message::Text(
+//             serde_json::to_string(&msg).wrap_err_with(|| "could not make into a message")?,
+//         ))
+//     }
+// }
 
 #[derive(Debug, Deserialize)]
 pub struct WsEventSub {
@@ -143,12 +142,14 @@ struct Pagination {
     cursor: Option<String>,
 }
 
+#[allow(unused)]
 #[derive(Deserialize)]
 pub struct TwitchApiResponse {
     pub data: Vec<TwitchChannelInfo>,
     pagination: Pagination,
 }
 
+#[allow(unused)]
 #[derive(Deserialize)]
 pub struct TwitchChannelInfo {
     id: String,

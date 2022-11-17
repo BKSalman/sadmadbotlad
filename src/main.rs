@@ -2,7 +2,7 @@ use eyre::WrapErr;
 use reqwest::Url;
 use tokio_tungstenite::connect_async;
 
-use sadmadbotlad::{ApiInfo, discord::send_notification};
+use sadmadbotlad::ApiInfo;
 
 mod util;
 use util::install_eyre;

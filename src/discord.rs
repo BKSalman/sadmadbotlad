@@ -1,5 +1,3 @@
-use std::time::SystemTime;
-
 use serde::Serialize;
 
 use crate::{ApiInfo, twitch::TwitchApiResponse};

@@ -1,13 +1,10 @@
-use std::error::Error;
-
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
 use serde::Deserialize;
-use serde_json::json;
-use tokio::{net::TcpStream, sync::watch, task::JoinHandle};
+use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub mod discord;
@@ -15,7 +12,6 @@ mod twitch;
 
 use crate::twitch::{offline_event, online_event, TwitchApiResponse, WsEventSub};
 use discord::send_notification;
-use twitch::{EventSubResponse, LiveStatus};
 
 #[derive(Deserialize)]
 pub struct ApiInfo {
@@ -149,27 +145,27 @@ async fn handle_msg(msg: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
 }
 
 // Sends live status to clients.
-#[allow(unused)]
-async fn write(
-    mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    mut watch: watch::Receiver<LiveStatus>,
-) -> Result<(), eyre::Report> {
-    while watch.changed().await.is_ok() {
-        let val = watch.borrow().clone();
+// #[allow(unused)]
+// async fn write(
+//     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+//     mut watch: watch::Receiver<LiveStatus>,
+// ) -> Result<(), eyre::Report> {
+//     while watch.changed().await.is_ok() {
+//         let val = watch.borrow().clone();
 
-        let Ok(msg) = val.to_message() else {
-            continue;
-        };
+//         let Ok(msg) = val.to_message() else {
+//             continue;
+//         };
 
-        if let Err(error) = sender.send(msg).await {
-            if let Some(e) = error.source() {
-                let Some(tokio_tungstenite::tungstenite::error::Error::ConnectionClosed) =
-                    e.downcast_ref()
-                else {
-                    return Err(error.into());
-                };
-            }
-        }
-    }
-    Ok(())
-}
+//         if let Err(error) = sender.send(msg).await {
+//             if let Some(e) = error.source() {
+//                 let Some(tokio_tungstenite::tungstenite::error::Error::ConnectionClosed) =
+//                     e.downcast_ref()
+//                 else {
+//                     return Err(error.into());
+//                 };
+//             }
+//         }
+//     }
+//     Ok(())
+// }
