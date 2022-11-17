@@ -119,8 +119,9 @@ async fn handle_msg(msg: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
             println!("offline sub\n");
         }
         // let response = serde_json::from_str(&response);
-    } else if let Some(subscription) = json_msg.payload.subscription {
+    } else if let Some(subscription) = &json_msg.payload.subscription {
         println!("got {:?} event", subscription.r#type);
+        println!("{:#?}", json_msg);
 
         if subscription.r#type == "stream.online" {
             match http_client

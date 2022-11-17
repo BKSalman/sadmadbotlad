@@ -165,7 +165,7 @@ pub struct TwitchChannelInfo {
     game_id: String,
     language: String,
     thumbnail_url: String,
-    tag_ids: Vec<String>,
+    tag_ids: Option<Vec<String>>,
     is_mature: bool,
 }
 
