@@ -145,19 +145,27 @@ struct Pagination {
 
 #[derive(Deserialize)]
 pub struct TwitchApiResponse {
-    pub data: Vec<TwitchChannelInfo>
+    pub data: Vec<TwitchChannelInfo>,
+    pagination: Pagination,
 }
 
 #[derive(Deserialize)]
 pub struct TwitchChannelInfo {
-    pub broadcaster_id: String,
-    pub broadcaster_login: String,
-    pub broadcaster_name: String,
-    pub broadcaster_language: String,
-    pub game_id: String,
-    pub game_name: String,
+    id: String,
+    pub user_id: String,
     pub title: String,
-    pub delay: u32,
+    pub game_name: String,
+    pub started_at: String,
+
+    user_login: String,
+    user_name: String,
+    r#type: String,
+    viewer_count: u32,
+    game_id: String,
+    language: String,
+    thumbnail_url: String,
+    tag_ids: Vec<String>,
+    is_mature: bool,
 }
 
 pub fn online_event(session_id: String) -> Value {

@@ -2,6 +2,8 @@ use std::time::SystemTime;
 
 use serde::Serialize;
 
+use crate::{ApiInfo, twitch::TwitchApiResponse};
+
 #[derive(Serialize)]
 struct Image {
     url: String,
@@ -10,8 +12,23 @@ struct Image {
 #[derive(Serialize)]
 struct Embed {
     title: String,
+    author: Author,
     url: String,
     image: Image,
+    fields: Vec<Field>,
+}
+
+#[derive(Serialize)]
+struct Author {
+    name: String,
+    icon_url: String,
+}
+
+#[derive(Serialize)]
+struct Field {
+    name: String,
+    value: String,
+    inline: bool,
 }
 
 #[derive(Serialize)]
@@ -20,27 +37,49 @@ struct Message {
     embeds: Vec<Embed>,
 }
 
-pub async fn send_notification(title: &str) -> Result<(), reqwest::Error> {
+pub async fn send_notification(api_info: &ApiInfo, title: &str, game_name: &str) -> Result<(), reqwest::Error> {
     let http_client = reqwest::Client::new();
 
-    let Ok(discord_token) = std::env::var("DISCORD_TOKEN") else {
-        panic!("add DISCORD_TOKEN")
-    };
+    let timestamp = http_client.get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
+        .bearer_auth(api_info.twitch_oauth.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .send()
+        .await?
+        .json::<TwitchApiResponse>()
+        .await.and_then(|res| {
+            Ok(chrono::DateTime::parse_from_rfc3339(&res.data[0].started_at).expect("twitch fucked this one up").timestamp())
+        })?;
 
     let message = Message {
-        content: format!("<@&897124518374559794>\nSalman is streaming\n{}", title),
+        content: String::from("<@&897124518374559794> Salman is streaming\n"),
         embeds: vec![Embed {
-            title: String::from("Watch stream"),
+            title: format!("{}", title),
+            author: Author {
+                name: String::from("SadMadLadSalMaN"),
+                icon_url: String::from("https://static-cdn.jtvnw.net/jtv_user_pictures/497627b8-c550-4703-ae00-46a4a3cdc4c8-profile_image-300x300.png"),
+            },
             url: String::from("https://www.twitch.tv/sadmadladsalman"),
             image: Image {
-                url: format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_sadmadladsalman-320x180.jpg?something={}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs())
-            }
+                url: format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_sadmadladsalman-320x180.jpg?something={}", timestamp)
+            },
+            fields: vec![
+                Field {
+                    name: String::from("Game"),
+                    value: game_name.to_string(),
+                    inline: true,
+                },
+                Field {
+                    name: String::from("Started"),
+                    value: format!("<t:{timestamp}:R>"), //<t:1668640560:R>
+                    inline: true,
+                }
+            ],
         }],
     };
 
     http_client
         .post("https://discordapp.com/api/channels/575540932028530699/messages")
-        .header("authorization", format!("Bot {}", discord_token))
+        .header("authorization", format!("Bot {}", api_info.discord_token))
         // .bearer_auth(format!("Bot {}", discord_token))
         .json(&message)
         .send()
@@ -48,7 +87,5 @@ pub async fn send_notification(title: &str) -> Result<(), reqwest::Error> {
         .text()
         .await?;
 
-
     Ok(())
-    
 }

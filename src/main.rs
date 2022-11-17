@@ -1,8 +1,8 @@
-use reqwest::Url;
 use eyre::WrapErr;
+use reqwest::Url;
 use tokio_tungstenite::connect_async;
 
-use sadmadbotlad::ApiInfo;
+use sadmadbotlad::{ApiInfo, discord::send_notification};
 
 mod util;
 use util::install_eyre;
@@ -29,10 +29,7 @@ async fn run() -> Result<(), eyre::Report> {
 
     // let (sender, recv) = watch::channel(live);
 
-    api_info.delete_subs().await?;
-
     api_info.handle_socket(socket).await;
 
     Ok(())
 }
-
