@@ -3,9 +3,10 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
+use reqwest::Url;
 use serde::Deserialize;
 use tokio::{net::TcpStream, task::JoinHandle};
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub mod discord;
 mod twitch;
@@ -29,26 +30,30 @@ impl ApiInfo {
             }
         }
     }
-
-    pub async fn handle_socket(
-        self,
-        socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-        // watch: watch::Receiver<LiveStatus>,
-    ) {
-        let (sender, receiver) = socket.split();
-
-        if let Err(e) = tokio::try_join!(
-            // flatten(tokio::spawn(write(sender, watch))),
-            flatten(tokio::spawn(read(self, receiver, sender)))
-        )
-        .wrap_err_with(|| "in stream join")
-        {
-            eprintln!("socket failed {e}")
-        }
-    }
 }
 
-async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, eyre::Report> {
+pub async fn eventsub() -> Result<(), eyre::Report> {
+    let api_info = ApiInfo::new();
+
+    let (socket, _response) =
+        connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
+            .await?;
+
+    let (sender, receiver) = socket.split();
+
+    if let Err(e) = tokio::try_join!(
+        // flatten(tokio::spawn(write(sender, watch))),
+        flatten(tokio::spawn(read(api_info, receiver, sender)))
+    )
+    .wrap_err_with(|| "in stream join")
+    {
+        eprintln!("socket failed {e}")
+    }
+
+    Ok(())
+}
+
+pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, eyre::Report> {
     match handle.await {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err),

@@ -1,10 +1,11 @@
 use eyre::WrapErr;
-use reqwest::Url;
-use tokio_tungstenite::connect_async;
+use irc::{irc_connect, SongRequest, Queue};
 
-use sadmadbotlad::ApiInfo;
+// use sadmadbotlad::eventsub;
 
 mod util;
+mod irc;
+
 use util::install_eyre;
 
 #[tokio::main]
@@ -17,19 +18,16 @@ async fn main() -> Result<(), eyre::Report> {
 }
 
 async fn run() -> Result<(), eyre::Report> {
-    let api_info = ApiInfo::new();
-
-    let (socket, _response) =
-        connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
-            .await?;
 
     // let live = LiveStatus::Offline {
     //     url: String::from("https://twitch.tv/sadmadladsalman"),
     // };
 
     // let (sender, recv) = watch::channel(live);
+    
+    irc_connect().await?;
 
-    api_info.handle_socket(socket).await;
+    // eventsub().await?;
 
     Ok(())
 }
