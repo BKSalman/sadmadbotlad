@@ -1,13 +1,16 @@
+use std::sync::{Arc, Mutex};
+
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
+use libmpv::Mpv;
 use sadmadbotlad::flatten;
 use tokio::{net::TcpStream, sync::mpsc::{self, Sender}};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::song_requests::{SongRequest, play_song};
+use crate::song_requests::{SongRequest, play_song, setup_mpv, Queue};
 
 pub async fn irc_connect() -> eyre::Result<()> {
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
@@ -18,13 +21,21 @@ pub async fn irc_connect() -> eyre::Result<()> {
 
     let (sender, receiver) = mpsc::channel::<SongRequest>(200);
     
+    let queue = Arc::new(Mutex::new(Queue::new()));
+    
+    let queue_ref = queue.clone();
+    
+    let mpv = Arc::new(setup_mpv());
+    
+    let mpv_ref = mpv.clone();
+
     let join_handle = std::thread::spawn(move || {
-        play_song(receiver)
+            play_song(receiver, mpv_ref, queue_ref)
     });
     
     if let Err(e) = tokio::try_join!(
         flatten(tokio::spawn(async move {
-            read(sender, ws_receiver).await
+            read(sender, ws_receiver, mpv, queue).await
         }))
     )
     .wrap_err_with(|| "songs")
@@ -54,6 +65,8 @@ async fn login(
 async fn read(
     sender: Sender<SongRequest>,
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    mpv: Arc<Mpv>,
+    queue: Arc<Mutex<Queue>>,
 ) -> eyre::Result<()> {
     while let Some(msg) = receiver.next().await {
         match msg {
@@ -63,17 +76,47 @@ async fn read(
                 let parsed_sender = parse_sender(&msg);
 
                 println!("{}: {}", parsed_sender, parsed_msg);
-
+                
                 if parsed_msg.starts_with("!sr ") {
+
                     let song_url = parsed_msg.split(' ').collect::<Vec<&str>>()[1];
 
                     let song = SongRequest {
                         user: parsed_sender,
                         song: song_url.to_string(),
                     };
+                    
+                    sender.send(song.clone()).await.expect("send song");
 
-                    sender.send(song).await.expect("send song");
+                    queue.lock().expect("queue lock").enqueue(song).expect("Enqueuing");
+                    
+                } else if parsed_msg.starts_with("!skip") {
+                    if let Err(e) = mpv.playlist_next_force() {
+                        println!("{e}");
+                    }
+                } else if parsed_msg.starts_with("!volume ") {
+                    let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
+                        continue;
+                    };
+                    
+                    if let Err(e) = mpv.set_property("volume", value) {
+                        println!("{e}");
+                    }
+                } else if parsed_msg.starts_with("!pause") {
+                    if let Err(e) = mpv.pause() {
+                        println!("{e}");
+                    }
+                } else if parsed_msg.starts_with("!play") {
+                    if let Err(e) = mpv.unpause() {
+                        println!("{e}");
+                    }
+                } else if parsed_msg.starts_with("!queue") {
+                    println!("{:#?}", queue.lock().expect("queue"));
                 }
+                // do this when you do permissions and shit
+                // else if parsed_msg.starts_with("!title ") {
+                    
+                // }
                 
             }
             Ok(_) => {}
@@ -85,11 +128,11 @@ async fn read(
 }
 
 fn parse_message(msg: &str) -> String {
-    msg[(&msg[1..]).find(':').unwrap() + 2..]
+    msg.trim()[(&msg[1..]).find(':').unwrap() + 2..]
         .replace("\r\n", "")
         .to_string()
 }
 
 fn parse_sender(msg: &str) -> String {
-    msg[1..msg.find('!').unwrap()].to_string()
+    msg.trim()[1..msg.find('!').unwrap()].to_string()
 }
