@@ -107,7 +107,11 @@ async fn read(
                     if let Err(e) = mpv.set_property("volume", value) {
                         println!("{e}");
                     }
-                } else if parsed_msg.starts_with("!pause") {
+                }  else if parsed_msg.starts_with("!volume") {
+                    if let Ok(volume) = mpv.get_property::<i64>("volume") {
+                        println!("{volume}");
+                    }
+                }else if parsed_msg.starts_with("!pause") {
                     if let Err(e) = mpv.pause() {
                         println!("{e}");
                     }
