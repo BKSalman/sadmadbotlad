@@ -1,10 +1,11 @@
 use eyre::WrapErr;
-use irc::{irc_connect, SongRequest, Queue};
+use irc::irc_connect;
 
 // use sadmadbotlad::eventsub;
 
 mod util;
 mod irc;
+mod song_requests;
 
 use util::install_eyre;
 
