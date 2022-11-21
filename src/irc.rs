@@ -93,6 +93,12 @@ async fn read(
                     if let Err(e) = mpv.playlist_next_force() {
                         println!("{e}");
                     }
+
+                    let mut locked_queue = queue.lock().expect("read:: queue");
+
+                    if locked_queue.rear == 0 {
+                        locked_queue.current_song = None;
+                    }
                 } else if parsed_msg.starts_with("!volume ") {
                     let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
                         continue;
@@ -110,9 +116,9 @@ async fn read(
                         println!("{e}");
                     }
                 } else if parsed_msg.starts_with("!queue") {
-                    println!("{:#?}", queue.lock().expect("queue"));
+                    println!("{:#?}", queue.lock().expect("read:: queue"));
                 } else if parsed_msg.starts_with("!currentsong") {
-                    println!("{:#?}", queue.lock().expect("queue").current_song);
+                    println!("{:#?}", queue.lock().expect("read:: queue").current_song);
                 }
                 // do this when you do permissions and shit
                 // else if parsed_msg.starts_with("!title ") {

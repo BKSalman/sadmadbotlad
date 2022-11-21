@@ -27,8 +27,8 @@ pub struct SongRequest {
 #[derive(Default, Debug, Clone)]
 pub struct Queue {
     pub current_song: Option<SongRequest>,
-    queue: [Option<SongRequest>; 20],
-    rear: usize,
+    pub queue: [Option<SongRequest>; 20],
+    pub rear: usize,
 }
 
 impl Queue {
@@ -108,7 +108,13 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
                     mpv.playlist_load_files(&[(&song.song, FileState::AppendPlay, None)])
                         .expect("play song");
 
-                    if let Err(e) = queue.lock().expect("queue lock").dequeue() {
+                    let mut locked_queue = queue.lock().expect("queue lock");
+                    
+                    if locked_queue.rear == 0 {
+                        locked_queue.current_song = None;
+                    }
+                    
+                    if let Err(e) = locked_queue.dequeue() {
                         println!("play_song:: {e}");
                     }
 
