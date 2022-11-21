@@ -7,10 +7,13 @@ use futures_util::{
 };
 use libmpv::Mpv;
 use sadmadbotlad::flatten;
-use tokio::{net::TcpStream, sync::mpsc::{self, Sender}};
+use tokio::{
+    net::TcpStream,
+    sync::mpsc::{self, Sender},
+};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::song_requests::{SongRequest, play_song, setup_mpv, Queue};
+use crate::song_requests::{play_song, Queue, SongRequest, SongRequestSetup};
 
 pub async fn irc_connect() -> eyre::Result<()> {
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
@@ -20,24 +23,18 @@ pub async fn irc_connect() -> eyre::Result<()> {
     login(ws_sender).await?;
 
     let (sender, receiver) = mpsc::channel::<SongRequest>(200);
-    
-    let queue = Arc::new(Mutex::new(Queue::new()));
-    
-    let queue_ref = queue.clone();
-    
-    let mpv = Arc::new(setup_mpv());
-    
-    let mpv_ref = mpv.clone();
 
-    let join_handle = std::thread::spawn(move || {
-            play_song(receiver, mpv_ref, queue_ref)
-    });
-    
-    if let Err(e) = tokio::try_join!(
-        flatten(tokio::spawn(async move {
-            read(sender, ws_receiver, mpv, queue).await
-        }))
-    )
+    let sr_setup = SongRequestSetup::new();
+
+    let queue = sr_setup.queue.clone();
+
+    let mpv = sr_setup.mpv.clone();
+
+    let join_handle = std::thread::spawn(move || play_song(receiver, mpv, queue));
+
+    if let Err(e) = tokio::try_join!(flatten(tokio::spawn(async move {
+        read(sender, ws_receiver, sr_setup.mpv, sr_setup.queue).await
+    })))
     .wrap_err_with(|| "songs")
     {
         eprintln!("{e}")
@@ -76,20 +73,22 @@ async fn read(
                 let parsed_sender = parse_sender(&msg);
 
                 println!("{}: {}", parsed_sender, parsed_msg);
-                
-                if parsed_msg.starts_with("!sr ") {
 
+                if parsed_msg.starts_with("!sr ") {
                     let song_url = parsed_msg.split(' ').collect::<Vec<&str>>()[1];
 
                     let song = SongRequest {
                         user: parsed_sender,
                         song: song_url.to_string(),
                     };
-                    
+
                     sender.send(song.clone()).await.expect("send song");
 
-                    queue.lock().expect("queue lock").enqueue(song).expect("Enqueuing");
-                    
+                    queue
+                        .lock()
+                        .expect("queue lock")
+                        .enqueue(song)
+                        .expect("Enqueuing");
                 } else if parsed_msg.starts_with("!skip") {
                     if let Err(e) = mpv.playlist_next_force() {
                         println!("{e}");
@@ -98,7 +97,7 @@ async fn read(
                     let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
                         continue;
                     };
-                    
+
                     if let Err(e) = mpv.set_property("volume", value) {
                         println!("{e}");
                     }
@@ -112,12 +111,13 @@ async fn read(
                     }
                 } else if parsed_msg.starts_with("!queue") {
                     println!("{:#?}", queue.lock().expect("queue"));
+                } else if parsed_msg.starts_with("!currentsong") {
+                    println!("{:#?}", queue.lock().expect("queue").current_song);
                 }
                 // do this when you do permissions and shit
                 // else if parsed_msg.starts_with("!title ") {
-                    
+
                 // }
-                
             }
             Ok(_) => {}
             Err(e) => println!("{e}"),

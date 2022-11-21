@@ -4,6 +4,20 @@ use libmpv::events::Event;
 use libmpv::{FileState, Mpv};
 use tokio::sync::mpsc::Receiver;
 
+pub struct SongRequestSetup {
+    pub queue: Arc<Mutex<Queue>>,
+    pub mpv: Arc<Mpv>,
+}
+
+impl SongRequestSetup {
+    pub fn new() -> Self {
+        Self {
+            queue: Arc::new(Mutex::new(Queue::new())),
+            mpv: Arc::new(setup_mpv()),
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct SongRequest {
     pub song: String,
@@ -12,6 +26,7 @@ pub struct SongRequest {
 
 #[derive(Default, Debug, Clone)]
 pub struct Queue {
+    pub current_song: Option<SongRequest>,
     queue: [Option<SongRequest>; 20],
     rear: usize,
 }
@@ -33,21 +48,22 @@ impl Queue {
         Ok(())
     }
 
-    pub fn dequeue(&mut self) -> Result<Option<SongRequest>, &'static str> {
-        if self.rear <= 0 {
-            return Err("queue is empty");
-        }
+    pub fn dequeue(&mut self) -> Result<(), &'static str> {
 
-        let value = self.queue[self.rear].clone();
+        self.current_song = self.queue[0].clone();
 
         for i in 0..self.rear - 1 {
             self.queue[i] = self.queue[i + 1].clone();
             self.queue[i + 1] = None;
         }
-
+        
+        if self.rear == 1 {
+            self.queue[0] = None;
+        }
+        
         self.rear -= 1;
-
-        Ok(value)
+        
+        Ok(())
     }
 }
 
@@ -70,38 +86,33 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
         .disable_deprecated_events()
         .expect("deprecated events");
 
-    if let Some(song) = receiver.blocking_recv() {
-        mpv.playlist_load_files(&[(&song.song, FileState::AppendPlay, None)])
-            .expect("play song");
+        if let Some(song) = receiver.blocking_recv() {
+            mpv.playlist_load_files(&[(&song.song, FileState::AppendPlay, None)])
+                .expect("play song");
 
-        if let Ok(song) = queue.lock().expect("queue lock").dequeue() {
+            if let Err(e) = queue.lock().expect("queue lock").dequeue() {
+                println!("play_song:: {e}");
+            }
+
             println!("{song:?}");
         }
-    }
 
     loop {
         let ev = event_ctx
             .wait_event(120.)
             .unwrap_or(Err(libmpv::Error::Null));
 
-        if let Some(song) = receiver.blocking_recv() {
-            mpv.playlist_load_files(&[(&song.song, FileState::AppendPlay, None)])
-                .expect("play song");
-
-            if let Ok(song) = queue.lock().expect("queue lock").dequeue() {
-                println!("{song:?}");
-            }
-        }
-
         match ev {
             Ok(Event::EndFile(_)) => {
-                if let Some(something) = receiver.blocking_recv() {
-                    mpv.playlist_load_files(&[(&something.song, FileState::AppendPlay, None)])
+                if let Some(song) = receiver.blocking_recv() {
+                    mpv.playlist_load_files(&[(&song.song, FileState::AppendPlay, None)])
                         .expect("play song");
 
-                    if let Ok(song) = queue.lock().expect("queue lock").dequeue() {
-                        println!("{song:?}");
+                    if let Err(e) = queue.lock().expect("queue lock").dequeue() {
+                        println!("play_song:: {e}");
                     }
+
+                    println!("{song:?}");
                 }
             }
             Ok(_) => {}
