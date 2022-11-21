@@ -9,5 +9,6 @@ A personal twitch/discord bot that I incremently add features to depending on wh
 - chat bot
   - song requests
     - queuing
+    - getting current song
     - skipping
     - listing the queue
