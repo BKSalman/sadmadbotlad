@@ -6,7 +6,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use libmpv::Mpv;
-use sadmadbotlad::flatten;
+use sadmadbotlad::{flatten, ApiInfo};
 use tokio::{
     net::TcpStream,
     sync::mpsc::{self, Sender},
@@ -15,12 +15,16 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 
 use crate::song_requests::{play_song, Queue, SongRequest, SongRequestSetup};
 
-pub async fn irc_connect() -> eyre::Result<()> {
+pub async fn irc_connect(api_info: &ApiInfo) -> eyre::Result<()> {
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
     let (ws_sender, ws_receiver) = socket.split();
 
-    login(ws_sender).await?;
+    let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
+
+    let ws_sender_ref = ws_sender.clone();
+
+    login(ws_sender_ref, api_info).await?;
 
     let (sender, receiver) = mpsc::channel::<SongRequest>(200);
 
@@ -33,7 +37,7 @@ pub async fn irc_connect() -> eyre::Result<()> {
     let join_handle = std::thread::spawn(move || play_song(receiver, mpv, queue));
 
     if let Err(e) = tokio::try_join!(flatten(tokio::spawn(async move {
-        read(sender, ws_receiver, sr_setup.mpv, sr_setup.queue).await
+        read(sender, ws_sender, ws_receiver, sr_setup.mpv, sr_setup.queue).await
     })))
     .wrap_err_with(|| "songs")
     {
@@ -46,13 +50,20 @@ pub async fn irc_connect() -> eyre::Result<()> {
 }
 
 async fn login(
-    mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
+    api_info: &ApiInfo,
 ) -> Result<(), eyre::Report> {
-    let nick_msg = Message::Text(String::from("NICK justinfan5005"));
+    let mut locked_sender = sender.lock().await;
 
-    sender.send(nick_msg).await?;
+    let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_oauth));
 
-    sender
+    locked_sender.send(pass_msg).await?;
+
+    let nick_msg = Message::Text(String::from("NICK sadmadbotlad"));
+
+    locked_sender.send(nick_msg).await?;
+
+    locked_sender
         .send(Message::Text(String::from("JOIN #sadmadladsalman")))
         .await?;
 
@@ -61,13 +72,20 @@ async fn login(
 
 async fn read(
     sender: Sender<SongRequest>,
+    ws_sender: Arc<
+        tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
+    >,
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mpv: Arc<Mpv>,
     queue: Arc<Mutex<Queue>>,
 ) -> eyre::Result<()> {
     while let Some(msg) = receiver.next().await {
         match msg {
-            Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
+            Ok(Message::Text(msg))
+                if msg.contains("PRIVMSG") && parse_message(&msg).starts_with("!") =>
+            {
+                let mut locked_sender = ws_sender.lock().await;
+
                 let parsed_msg = parse_message(&msg);
 
                 let parsed_sender = parse_sender(&msg);
@@ -79,16 +97,25 @@ async fn read(
 
                     let song = SongRequest {
                         user: parsed_sender,
-                        song: song_url.to_string(),
+                        song_url: song_url.to_string(),
                     };
 
                     sender.send(song.clone()).await.expect("send song");
 
                     queue
                         .lock()
-                        .expect("queue lock")
-                        .enqueue(song)
+                        .expect("read:: queue lock")
+                        .enqueue(song.clone())
                         .expect("Enqueuing");
+
+                    // locked_sender
+                    //     .send(Message::Text(format!(
+                    //         "PRIVMSG #sadmadladsalman :started playing {}",
+                    //         song.song_url
+                    //     )))
+                    //     .await
+                    //     .expect("read::sr: chat");
+
                 } else if parsed_msg.starts_with("!skip") {
                     if let Err(e) = mpv.playlist_next_force() {
                         println!("{e}");
@@ -96,9 +123,19 @@ async fn read(
 
                     let mut locked_queue = queue.lock().expect("read:: queue");
 
+                    // let current_song = locked_queue.current_song.clone();
+
                     if locked_queue.rear == 0 {
                         locked_queue.current_song = None;
                     }
+
+                    // locked_sender
+                    //     .send(Message::Text(format!(
+                    //         "PRIVMSG #sadmadladsalman :started playing {}",
+                    //         current_song.unwrap_or(SongRequest::empty()).song_url
+                    //     )))
+                    //     .await
+                    //     .expect("read::sr: chat");
                 } else if parsed_msg.starts_with("!volume ") {
                     let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
                         continue;
@@ -107,11 +144,20 @@ async fn read(
                     if let Err(e) = mpv.set_property("volume", value) {
                         println!("{e}");
                     }
-                }  else if parsed_msg.starts_with("!volume") {
-                    if let Ok(volume) = mpv.get_property::<i64>("volume") {
-                        println!("{volume}");
-                    }
-                }else if parsed_msg.starts_with("!pause") {
+                } else if parsed_msg.starts_with("!volume") {
+                    let Ok(volume) = mpv.get_property::<i64>("volume") else {
+                        panic!("read:: volume");
+                    };
+
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :volume: {}",
+                            volume
+                        )))
+                        .await
+                        .expect("read::sr: chat");
+
+                } else if parsed_msg.starts_with("!pause") {
                     if let Err(e) = mpv.pause() {
                         println!("{e}");
                     }

@@ -18,3 +18,4 @@ tokio-tungstenite = { version = "0.17.2", features = ["native-tls"]}
 serde_json = "1.0.87"
 chrono = "0.4.23"
 libmpv = "2.0.1"
+libmpv-sys = "3.1.0"

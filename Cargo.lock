@@ -1038,6 +1038,7 @@ dependencies = [
  "eyre",
  "futures-util",
  "libmpv",
+ "libmpv-sys",
  "reqwest",
  "serde",
  "serde_json",

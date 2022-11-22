@@ -1,3 +1,4 @@
+use sadmadbotlad::{eventsub, ApiInfo};
 use eyre::WrapErr;
 use irc::irc_connect;
 
@@ -25,10 +26,11 @@ async fn run() -> Result<(), eyre::Report> {
     // };
 
     // let (sender, recv) = watch::channel(live);
+    let api_info = ApiInfo::new();
     
-    irc_connect().await?;
+    irc_connect(&api_info).await?;
 
-    // eventsub().await?;
+    eventsub(api_info).await?;
 
     Ok(())
 }

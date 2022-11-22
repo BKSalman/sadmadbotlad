@@ -32,8 +32,7 @@ impl ApiInfo {
     }
 }
 
-pub async fn eventsub() -> Result<(), eyre::Report> {
-    let api_info = ApiInfo::new();
+pub async fn eventsub(api_info: ApiInfo) -> Result<(), eyre::Report> {
 
     let (socket, _response) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
