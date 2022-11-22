@@ -1,8 +1,8 @@
-use sadmadbotlad::{eventsub, ApiInfo};
+use std::sync::Arc;
+
+use sadmadbotlad::{eventsub, ApiInfo, flatten};
 use eyre::WrapErr;
 use irc::irc_connect;
-
-// use sadmadbotlad::eventsub;
 
 mod util;
 mod irc;
@@ -14,7 +14,7 @@ use util::install_eyre;
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
 
-    run().await.with_context(|| "when running application")?;
+    run().await.with_context(|| "main:: running application")?;
 
     Ok(())
 }
@@ -26,11 +26,22 @@ async fn run() -> Result<(), eyre::Report> {
     // };
 
     // let (sender, recv) = watch::channel(live);
-    let api_info = ApiInfo::new();
-    
-    irc_connect(&api_info).await?;
 
-    eventsub(api_info).await?;
+    let api_info = Arc::new(ApiInfo::new());
+    
+    let api_info_ref = api_info.clone();
+    
+    if let Err(e) = tokio::try_join!(
+        flatten(tokio::spawn(async move {
+            eventsub(api_info_ref).await
+        })),
+        flatten(tokio::spawn(async move {
+            irc_connect(&api_info).await
+        })),
+    ).wrap_err_with(|| "run")
+    {
+        eprintln!("run:: {e}")
+    };
 
     Ok(())
 }

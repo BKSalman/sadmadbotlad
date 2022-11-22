@@ -16,6 +16,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 use crate::song_requests::{play_song, Queue, SongRequest, SongRequestSetup};
 
 pub async fn irc_connect(api_info: &ApiInfo) -> eyre::Result<()> {
+    println!("starting irc");
+
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
     let (ws_sender, ws_receiver) = socket.split();
@@ -108,34 +110,36 @@ async fn read(
                         .enqueue(song.clone())
                         .expect("Enqueuing");
 
-                    // locked_sender
-                    //     .send(Message::Text(format!(
-                    //         "PRIVMSG #sadmadladsalman :started playing {}",
-                    //         song.song_url
-                    //     )))
-                    //     .await
-                    //     .expect("read::sr: chat");
-
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :started playing {}",
+                            song.song_url
+                        )))
+                        .await
+                        .expect("read::sr: chat");
                 } else if parsed_msg.starts_with("!skip") {
                     if let Err(e) = mpv.playlist_next_force() {
                         println!("{e}");
                     }
 
-                    let mut locked_queue = queue.lock().expect("read:: queue");
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :skipped {}",
+                            queue
+                                .lock()
+                                .expect("read:: queue")
+                                .current_song
+                                .as_ref()
+                                .expect("read::!skip: current song")
+                                .song_url
+                        )))
+                        .await
+                        .expect("read::sr: chat");
 
-                    // let current_song = locked_queue.current_song.clone();
-
-                    if locked_queue.rear == 0 {
-                        locked_queue.current_song = None;
+                    if queue.lock().expect("read:: queue").rear == 0 {
+                        queue.lock().expect("read:: queue").current_song = None;
                     }
 
-                    // locked_sender
-                    //     .send(Message::Text(format!(
-                    //         "PRIVMSG #sadmadladsalman :started playing {}",
-                    //         current_song.unwrap_or(SongRequest::empty()).song_url
-                    //     )))
-                    //     .await
-                    //     .expect("read::sr: chat");
                 } else if parsed_msg.starts_with("!volume ") {
                     let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
                         continue;
@@ -144,6 +148,14 @@ async fn read(
                     if let Err(e) = mpv.set_property("volume", value) {
                         println!("{e}");
                     }
+                    
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :volume set to {value}",
+                        )))
+                        .await
+                        .expect("read::sr: chat");
+                    
                 } else if parsed_msg.starts_with("!volume") {
                     let Ok(volume) = mpv.get_property::<i64>("volume") else {
                         panic!("read:: volume");
@@ -156,19 +168,52 @@ async fn read(
                         )))
                         .await
                         .expect("read::sr: chat");
-
                 } else if parsed_msg.starts_with("!pause") {
                     if let Err(e) = mpv.pause() {
                         println!("{e}");
                     }
+
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :Paused",
+                        )))
+                        .await
+                        .expect("read::sr: chat");
+
                 } else if parsed_msg.starts_with("!play") {
                     if let Err(e) = mpv.unpause() {
                         println!("{e}");
                     }
+
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :Resumed {}",
+                            queue.lock().expect("read::!play: queue lock").current_song.as_ref().expect("read::!play: current song").song_url
+                        )))
+                        .await
+                        .expect("read::sr: chat");
+
                 } else if parsed_msg.starts_with("!queue") {
                     println!("{:#?}", queue.lock().expect("read:: queue"));
+                    
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :Queue: {:#?}",
+                            queue.lock().expect("read::!queue: queue lock")
+                        )))
+                        .await
+                        .expect("read::sr: chat");
+                    
                 } else if parsed_msg.starts_with("!currentsong") {
                     println!("{:#?}", queue.lock().expect("read:: queue").current_song);
+
+                    locked_sender
+                        .send(Message::Text(format!(
+                            "PRIVMSG #sadmadladsalman :Current song: {:#?}",
+                            queue.lock().expect("read:: queue").current_song
+                        )))
+                        .await
+                        .expect("read::sr: chat");
                 }
                 // do this when you do permissions and shit
                 // else if parsed_msg.starts_with("!title ") {

@@ -35,7 +35,7 @@ struct Message {
     embeds: Vec<Embed>,
 }
 
-pub async fn send_notification(api_info: &ApiInfo, title: &str, game_name: &str) -> Result<(), reqwest::Error> {
+pub async fn online_notification(api_info: &ApiInfo, title: &str, game_name: &str) -> Result<(), reqwest::Error> {
     let http_client = reqwest::Client::new();
 
     let timestamp = http_client.get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
@@ -87,3 +87,48 @@ pub async fn send_notification(api_info: &ApiInfo, title: &str, game_name: &str)
 
     Ok(())
 }
+
+// TODO: updating the notification message to show that I ended the stream might be cool
+
+// pub async fn offline_notification(api_info: &ApiInfo, title: &str, game_name: &str) -> Result<(), reqwest::Error> {
+//     let http_client = reqwest::Client::new();
+
+//     let message = Message {
+//         content: String::from("<@&897124518374559794> Salman is streaming\n"),
+//         embeds: vec![Embed {
+//             title: format!("{}", title),
+//             author: Author {
+//                 name: String::from("SadMadLadSalMaN"),
+//                 icon_url: String::from("https://static-cdn.jtvnw.net/jtv_user_pictures/497627b8-c550-4703-ae00-46a4a3cdc4c8-profile_image-300x300.png"),
+//             },
+//             url: String::from("https://www.twitch.tv/sadmadladsalman"),
+//             image: Image {
+//                 url: format!("https://static-cdn.jtvnw.net/previews-ttv/live_user_sadmadladsalman-320x180.jpg?something={}", timestamp)
+//             },
+//             fields: vec![
+//                 Field {
+//                     name: String::from("Game"),
+//                     value: game_name.to_string(),
+//                     inline: true,
+//                 },
+//                 Field {
+//                     name: String::from("Started"),
+//                     value: format!("<t:{timestamp}:R>"), //<t:1668640560:R>
+//                     inline: true,
+//                 }
+//             ],
+//         }],
+//     };
+
+//     http_client
+//         .post("https://discordapp.com/api/channels/575540932028530699/messages")
+//         .header("authorization", format!("Bot {}", api_info.discord_token))
+//         // .bearer_auth(format!("Bot {}", discord_token))
+//         .json(&message)
+//         .send()
+//         .await?
+//         .text()
+//         .await?;
+
+//     Ok(())
+// }

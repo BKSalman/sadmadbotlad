@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -12,7 +14,7 @@ pub mod discord;
 mod twitch;
 
 use crate::twitch::{offline_event, online_event, TwitchApiResponse, WsEventSub};
-use discord::send_notification;
+use discord::online_notification;
 
 #[derive(Deserialize)]
 pub struct ApiInfo {
@@ -32,8 +34,10 @@ impl ApiInfo {
     }
 }
 
-pub async fn eventsub(api_info: ApiInfo) -> Result<(), eyre::Report> {
-
+pub async fn eventsub(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
+    
+    println!("starting eventsub");
+    
     let (socket, _response) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
             .await?;
@@ -61,7 +65,7 @@ pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T
 }
 
 async fn read(
-    api_info: ApiInfo,
+    api_info: Arc<ApiInfo>,
     mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 ) -> Result<(), eyre::Report> {
@@ -138,7 +142,23 @@ async fn handle_msg(msg: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
                 .await
             {
                 Ok(res) => {
-                    send_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
+                    online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
+                }
+
+                Err(e) => println!("{e}\n"),
+            }
+        } else if subscription.r#type == "stream.offline" {
+            match http_client
+                .get("https://api.twitch.tv/helix/streams?user_id=143306668")
+                .bearer_auth(api_info.twitch_oauth.clone())
+                .header("Client-Id", api_info.client_id.clone())
+                .send()
+                .await?
+                .json::<TwitchApiResponse>()
+                .await
+            {
+                Ok(res) => {
+                    online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
                 }
 
                 Err(e) => println!("{e}\n"),
