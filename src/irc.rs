@@ -112,7 +112,7 @@ async fn read(
 
                     locked_sender
                         .send(Message::Text(format!(
-                            "PRIVMSG #sadmadladsalman :started playing {}",
+                            "PRIVMSG #sadmadladsalman :added {}",
                             song.song_url
                         )))
                         .await

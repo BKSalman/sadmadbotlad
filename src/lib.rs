@@ -147,23 +147,24 @@ async fn handle_msg(msg: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
 
                 Err(e) => println!("{e}\n"),
             }
-        } else if subscription.r#type == "stream.offline" {
-            match http_client
-                .get("https://api.twitch.tv/helix/streams?user_id=143306668")
-                .bearer_auth(api_info.twitch_oauth.clone())
-                .header("Client-Id", api_info.client_id.clone())
-                .send()
-                .await?
-                .json::<TwitchApiResponse>()
-                .await
-            {
-                Ok(res) => {
-                    online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
-                }
-
-                Err(e) => println!("{e}\n"),
-            }
         }
+        // else if subscription.r#type == "stream.offline" {
+        //     match http_client
+        //         .get("https://api.twitch.tv/helix/streams?user_id=143306668")
+        //         .bearer_auth(api_info.twitch_oauth.clone())
+        //         .header("Client-Id", api_info.client_id.clone())
+        //         .send()
+        //         .await?
+        //         .json::<TwitchApiResponse>()
+        //         .await
+        //     {
+        //         Ok(res) => {
+        //             online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
+        //         }
+
+        //         Err(e) => println!("{e}\n"),
+        //     }
+        // }
     }
 
     Ok(())

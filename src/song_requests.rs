@@ -127,7 +127,7 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
                 }
 
             }
-            Err(e) => {
+            Err(libmpv::Error::Raw(e)) => {
                 queue.lock().expect("queue lock").current_song = None;
 
                 let e_str = e.to_string();
