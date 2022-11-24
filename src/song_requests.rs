@@ -24,6 +24,7 @@ pub struct SongRequest {
     pub user: String,
 }
 
+#[allow(unused)]
 impl SongRequest {
     pub fn empty() -> Self {
         Self {

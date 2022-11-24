@@ -1,7 +1,7 @@
 use sadmadbotlad::flatten;
 use eyre::WrapErr;
 use irc::irc_connect;
-use eventsub::eventsub;
+// use eventsub::eventsub;
 
 mod util;
 mod irc;
@@ -28,9 +28,9 @@ async fn run() -> Result<(), eyre::Report> {
     // let (sender, recv) = watch::channel(live);
 
     if let Err(e) = tokio::try_join!(
-        flatten(tokio::spawn(async move {
-            eventsub().await
-        })),
+        // flatten(tokio::spawn(async move {
+        //     eventsub().await
+        // })),
         flatten(tokio::spawn(async move {
             irc_connect().await
         })),
