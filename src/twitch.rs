@@ -101,7 +101,7 @@ pub struct WsSession {
     pub id: String,
     pub status: String,
     pub connected_at: Timestamp,
-    pub keepalive_timeout_seconds: u32,
+    pub keepalive_timeout_seconds: Option<u32>,
     pub reconnect_url: Option<String>,
 }
 

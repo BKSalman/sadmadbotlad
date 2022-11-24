@@ -9,14 +9,16 @@ use libmpv::Mpv;
 use sadmadbotlad::{flatten, ApiInfo};
 use tokio::{
     net::TcpStream,
-    sync::mpsc::{self, Sender},
+    sync::{mpsc::{self, Sender}, MutexGuard},
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::song_requests::{play_song, Queue, SongRequest, SongRequestSetup};
 
-pub async fn irc_connect(api_info: &ApiInfo) -> eyre::Result<()> {
-    println!("starting irc");
+pub async fn irc_connect() -> eyre::Result<()> {
+    println!("Starting IRC");
+
+    let api_info = ApiInfo::new();
 
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
@@ -26,7 +28,7 @@ pub async fn irc_connect(api_info: &ApiInfo) -> eyre::Result<()> {
 
     let ws_sender_ref = ws_sender.clone();
 
-    login(ws_sender_ref, api_info).await?;
+    login(ws_sender_ref.lock().await, &api_info).await?;
 
     let (sender, receiver) = mpsc::channel::<SongRequest>(200);
 
@@ -39,7 +41,15 @@ pub async fn irc_connect(api_info: &ApiInfo) -> eyre::Result<()> {
     let join_handle = std::thread::spawn(move || play_song(receiver, mpv, queue));
 
     if let Err(e) = tokio::try_join!(flatten(tokio::spawn(async move {
-        read(sender, ws_sender, ws_receiver, sr_setup.mpv, sr_setup.queue).await
+        read(
+            sender,
+            ws_sender,
+            ws_receiver,
+            sr_setup.mpv,
+            sr_setup.queue,
+            &api_info,
+        )
+        .await
     })))
     .wrap_err_with(|| "songs")
     {
@@ -51,11 +61,10 @@ pub async fn irc_connect(api_info: &ApiInfo) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn login(
-    sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
+async fn login<'a>(
+    mut locked_sender: MutexGuard<'a, SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
     api_info: &ApiInfo,
 ) -> Result<(), eyre::Report> {
-    let mut locked_sender = sender.lock().await;
 
     let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_oauth));
 
@@ -68,7 +77,7 @@ async fn login(
     locked_sender
         .send(Message::Text(String::from("JOIN #sadmadladsalman")))
         .await?;
-
+    
     Ok(())
 }
 
@@ -80,7 +89,10 @@ async fn read(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mpv: Arc<Mpv>,
     queue: Arc<Mutex<Queue>>,
+    api_info: &ApiInfo,
 ) -> eyre::Result<()> {
+    println!("a");
+
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(msg))
@@ -94,7 +106,16 @@ async fn read(
 
                 println!("{}: {}", parsed_sender, parsed_msg);
 
-                if parsed_msg.starts_with("!sr ") {
+                if parsed_msg.starts_with("!ping") {
+
+                    locked_sender
+                        .send(Message::Text(String::from("PRIVMSG #sadmadladsalman :!pong")))
+                        .await
+                        .expect("read::sr: chat");
+                    
+                    println!("!pong");
+
+                } else if parsed_msg.starts_with("!sr ") {
                     let song_url = parsed_msg.split(' ').collect::<Vec<&str>>()[1];
 
                     let song = SongRequest {
@@ -139,7 +160,6 @@ async fn read(
                     if queue.lock().expect("read:: queue").rear == 0 {
                         queue.lock().expect("read:: queue").current_song = None;
                     }
-
                 } else if parsed_msg.starts_with("!volume ") {
                     let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
                         continue;
@@ -148,14 +168,13 @@ async fn read(
                     if let Err(e) = mpv.set_property("volume", value) {
                         println!("{e}");
                     }
-                    
+
                     locked_sender
                         .send(Message::Text(format!(
                             "PRIVMSG #sadmadladsalman :volume set to {value}",
                         )))
                         .await
                         .expect("read::sr: chat");
-                    
                 } else if parsed_msg.starts_with("!volume") {
                     let Ok(volume) = mpv.get_property::<i64>("volume") else {
                         panic!("read:: volume");
@@ -174,12 +193,9 @@ async fn read(
                     }
 
                     locked_sender
-                        .send(Message::Text(format!(
-                            "PRIVMSG #sadmadladsalman :Paused",
-                        )))
+                        .send(Message::Text(format!("PRIVMSG #sadmadladsalman :Paused",)))
                         .await
                         .expect("read::sr: chat");
-
                 } else if parsed_msg.starts_with("!play") {
                     if let Err(e) = mpv.unpause() {
                         println!("{e}");
@@ -188,14 +204,19 @@ async fn read(
                     locked_sender
                         .send(Message::Text(format!(
                             "PRIVMSG #sadmadladsalman :Resumed {}",
-                            queue.lock().expect("read::!play: queue lock").current_song.as_ref().expect("read::!play: current song").song_url
+                            queue
+                                .lock()
+                                .expect("read::!play: queue lock")
+                                .current_song
+                                .as_ref()
+                                .expect("read::!play: current song")
+                                .song_url
                         )))
                         .await
                         .expect("read::sr: chat");
-
                 } else if parsed_msg.starts_with("!queue") {
                     println!("{:#?}", queue.lock().expect("read:: queue"));
-                    
+
                     locked_sender
                         .send(Message::Text(format!(
                             "PRIVMSG #sadmadladsalman :Queue: {:#?}",
@@ -203,7 +224,6 @@ async fn read(
                         )))
                         .await
                         .expect("read::sr: chat");
-                    
                 } else if parsed_msg.starts_with("!currentsong") {
                     println!("{:#?}", queue.lock().expect("read:: queue").current_song);
 
@@ -219,6 +239,21 @@ async fn read(
                 // else if parsed_msg.starts_with("!title ") {
 
                 // }
+            }
+            Ok(Message::Text(msg)) if msg.contains("RECONNECT") => {
+                println!("Reconnecting IRC");
+                
+                let mut locked_sender = ws_sender.lock().await;
+                
+                let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
+                
+                let (sender, recv) = socket.split();
+                
+                *locked_sender = sender;
+                
+                receiver = recv;
+                
+                login(locked_sender, api_info).await?;
             }
             Ok(_) => {}
             Err(e) => println!("{e}"),

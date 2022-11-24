@@ -1,12 +1,12 @@
-use std::sync::Arc;
-
-use sadmadbotlad::{eventsub, ApiInfo, flatten};
+use sadmadbotlad::flatten;
 use eyre::WrapErr;
 use irc::irc_connect;
+use eventsub::eventsub;
 
 mod util;
 mod irc;
 mod song_requests;
+mod eventsub;
 
 use util::install_eyre;
 
@@ -27,16 +27,12 @@ async fn run() -> Result<(), eyre::Report> {
 
     // let (sender, recv) = watch::channel(live);
 
-    let api_info = Arc::new(ApiInfo::new());
-    
-    let api_info_ref = api_info.clone();
-    
     if let Err(e) = tokio::try_join!(
         flatten(tokio::spawn(async move {
-            eventsub(api_info_ref).await
+            eventsub().await
         })),
         flatten(tokio::spawn(async move {
-            irc_connect(&api_info).await
+            irc_connect().await
         })),
     ).wrap_err_with(|| "run")
     {
