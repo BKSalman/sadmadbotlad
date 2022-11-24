@@ -7,6 +7,7 @@ pub mod twitch;
 
 #[derive(Deserialize)]
 pub struct ApiInfo {
+    pub user: String,
     pub client_id: String,
     pub twitch_oauth: String,
     pub discord_token: String,

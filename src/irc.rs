@@ -75,7 +75,7 @@ async fn login<'a>(
 
     locked_sender.send(pass_msg).await?;
 
-    let nick_msg = Message::Text(String::from("NICK sadmadbotlad"));
+    let nick_msg = Message::Text(format!("NICK {}", api_info.user));
 
     locked_sender.send(nick_msg).await?;
 
@@ -242,8 +242,12 @@ async fn read(
                     receiver = recv;
 
                     login(locked_sender, api_info).await?;
-                } else {
-                    println!("{msg}");
+                } else if msg.contains("PING") {
+                    ws_sender
+                        .lock()
+                        .await
+                        .send(Message::Text(String::from("PONG :tmi.twitch.tv")))
+                        .await?;
                 }
             }
             Ok(_) => {}

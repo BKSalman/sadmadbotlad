@@ -7,6 +7,7 @@ mod util;
 mod irc;
 mod song_requests;
 mod eventsub;
+mod alerts;
 
 use util::install_eyre;
 
