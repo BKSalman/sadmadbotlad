@@ -1,12 +1,13 @@
-use std::sync::{Arc, Mutex};
-
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
 use libmpv::Mpv;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sadmadbotlad::{flatten, ApiInfo};
+use serde_json::Value;
+use std::sync::{Arc, Mutex};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -17,6 +18,8 @@ use tokio::{
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::song_requests::{play_song, Queue, SongRequest, SongRequestSetup};
+
+const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
 
 pub async fn irc_connect() -> eyre::Result<()> {
     println!("Starting IRC");
@@ -43,7 +46,7 @@ pub async fn irc_connect() -> eyre::Result<()> {
 
     let join_handle = std::thread::spawn(move || play_song(receiver, mpv, queue));
 
-    if let Err(e) = tokio::try_join!(flatten(tokio::spawn(async move {
+    tokio::try_join!(flatten(tokio::spawn(async move {
         read(
             sender,
             ws_sender,
@@ -54,10 +57,7 @@ pub async fn irc_connect() -> eyre::Result<()> {
         )
         .await
     })))
-    .wrap_err_with(|| "songs")
-    {
-        eprintln!("{e}")
-    }
+    .wrap_err_with(|| "songs")?;
 
     join_handle.join().expect("thread join");
 
@@ -117,22 +117,86 @@ async fn read(
 
                         println!("!pong");
                     } else if parsed_msg.starts_with("!sr ") {
-                        let song_url = parsed_msg.split(' ').collect::<Vec<&str>>()[1];
+                        let mut song_msg = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
+                        let http_client = reqwest::Client::new();
+                        
+                        // TODO: move this to a seprate function you lazy ass bitch
+                        if !song_msg.starts_with("https://") {
+                            let res = http_client
+                                .get(format!(
+                                    "https://youtube.googleapis.com/youtube/v3/\
+                                    search?part=snippet&maxResults=1&q={}&type=video&key={}",
+                                    utf8_percent_encode(&song_msg, FRAGMENT),
+                                    api_info.google_api_key
+                                ))
+                                .send()
+                                .await?
+                                .json::<Value>()
+                                .await?;
 
-                        let song = SongRequest {
-                            user: parsed_sender,
-                            song_url: song_url.to_string(),
-                        };
+                            let video_title = res["items"][0]["snippet"]["title"]
+                                .as_str()
+                                .expect("yt video title");
 
-                        sender.send(song.clone()).await.expect("send song");
+                            let video_id = res["items"][0]["id"]["videoId"]
+                                .as_str()
+                                .expect("yt video id");
 
-                        queue
-                            .lock()
-                            .expect("read:: queue lock")
-                            .enqueue(song.clone())
-                            .expect("Enqueuing");
+                            let song = SongRequest {
+                                user: parsed_sender,
+                                song_url: format!("https://www.youtube.com/watch/{}", video_id),
+                            };
 
-                        message = format!("PRIVMSG #sadmadladsalman :Added {}", song.song_url);
+                            sender.send(song.clone()).await.expect("send song");
+
+                            queue
+                                .lock()
+                                .expect("read:: queue lock")
+                                .enqueue(song.clone())
+                                .expect("Enqueuing");
+
+                            message = format!("PRIVMSG #sadmadladsalman :Added: {}", video_title);
+                        } else {
+                            if song_msg.contains("?v=") && song_msg.contains("&") {
+                                song_msg = &song_msg[song_msg.find("?v=").unwrap() + 3
+                                    ..song_msg.find('&').unwrap()];
+                            } else if song_msg.contains("?v=") {
+                                song_msg = &song_msg[song_msg.find("?v=").unwrap() + 3..];
+                            } else if song_msg.contains("/watch/") {
+                                song_msg =
+                                    song_msg.rsplit_once('/').expect("yt watch format link").1;
+                            }
+
+                            let res = http_client
+                                .get(format!(
+                                    "https://youtube.googleapis.com/youtube/v3/\
+                                    search?part=snippet&maxResults=1&q={}&type=video&key={}",
+                                    song_msg, api_info.google_api_key
+                                ))
+                                .send()
+                                .await?
+                                .json::<Value>()
+                                .await?;
+
+                            let video_title = res["items"][0]["snippet"]["title"]
+                                .as_str()
+                                .expect("yt video title");
+
+                            let song = SongRequest {
+                                user: parsed_sender,
+                                song_url: format!("https://youtube.com/watch/{}", song_msg),
+                            };
+
+                            sender.send(song.clone()).await.expect("send song");
+
+                            queue
+                                .lock()
+                                .expect("read:: queue lock")
+                                .enqueue(song.clone())
+                                .expect("Enqueuing");
+
+                            message = format!("PRIVMSG #sadmadladsalman :Added: {}", video_title);
+                        }
                     } else if parsed_msg.starts_with("!skip") {
                         if let Err(e) = mpv.playlist_next_force() {
                             println!("{e}");
@@ -251,7 +315,9 @@ async fn read(
                 }
             }
             Ok(_) => {}
-            Err(e) => println!("IRC::read:: {e}"),
+            Err(e) => {
+                println!("IRC::read:: {e}");
+            }
         }
     }
 

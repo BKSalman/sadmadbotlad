@@ -130,15 +130,17 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
             }
             Err(libmpv::Error::Raw(e)) => {
                 queue.lock().expect("queue lock").current_song = None;
+                
+                println!("{e}");
+                
+                // let e_str = e.to_string();
 
-                let e_str = e.to_string();
+                // let e = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
 
-                let e = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
-
-                println!(
-                    "MpvEvent:: {e}:{}",
-                    libmpv_sys::mpv_error_str(e.parse::<i32>().unwrap())
-                );
+                // println!(
+                //     "MpvEvent:: {e}:{}",
+                //     libmpv_sys::mpv_error_str(e.parse::<i32>().unwrap())
+                // );
             }
             _ => {},
         }

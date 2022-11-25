@@ -43,9 +43,9 @@ async fn read(
 ) -> Result<(), eyre::Report> {
     while let Some(msg) = recv.next().await {
         match msg {
-            Ok(Message::Ping(_)) => {
+            Ok(Message::Ping(ping)) => {
                 // println!("ping");
-                sender.send(Message::Pong(vec![])).await?;
+                sender.send(Message::Pong(ping)).await?;
             }
             Ok(msg) => {
                 let msg = msg.to_string();
@@ -88,7 +88,7 @@ async fn read(
                             .text()
                             .await
                         {
-                            println!("online sub\n");
+                            println!("online sub");
                         }
 
                         if let Ok(_) = http_client
@@ -101,14 +101,14 @@ async fn read(
                             .text()
                             .await
                         {
-                            println!("offline sub\n");
+                            println!("offline sub");
                         }
                         // let response = serde_json::from_str(&response);
                     }
                 } else if let Some(_) = &json_msg.payload.session {
                 } else if let Some(subscription) = &json_msg.payload.subscription {
                     println!("got {:?} event", subscription.r#type);
-                    println!("{:#?}", json_msg);
+                    // println!("{:#?}", json_msg);
 
                     if subscription.r#type == "stream.online" {
                         match http_client

@@ -1,22 +1,23 @@
 use sadmadbotlad::flatten;
 use eyre::WrapErr;
 use irc::irc_connect;
-// use eventsub::eventsub;
+use eventsub::eventsub;
 
 mod util;
 mod irc;
 mod song_requests;
 mod eventsub;
-mod alerts;
+mod youtube;
+// mod alerts;
 
 use util::install_eyre;
 
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
-
+    
     run().await.with_context(|| "main:: running application")?;
-
+    
     Ok(())
 }
 
@@ -28,17 +29,14 @@ async fn run() -> Result<(), eyre::Report> {
 
     // let (sender, recv) = watch::channel(live);
 
-    if let Err(e) = tokio::try_join!(
-        // flatten(tokio::spawn(async move {
-        //     eventsub().await
-        // })),
+    tokio::try_join!(
+        flatten(tokio::spawn(async move {
+            eventsub().await
+        })),
         flatten(tokio::spawn(async move {
             irc_connect().await
         })),
-    ).wrap_err_with(|| "run")
-    {
-        eprintln!("run:: {e}")
-    };
+    ).wrap_err_with(|| "run")?;
 
     Ok(())
 }
