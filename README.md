@@ -12,3 +12,7 @@ A personal twitch/discord bot that I incremently add features to depending on wh
     - getting current song
     - skipping
     - listing the queue
+
+# Future features
+- Front-end to view queue
+- Stream alerts
