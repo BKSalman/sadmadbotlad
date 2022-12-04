@@ -1,6 +1,9 @@
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use twitch_api::types::Timestamp;
+
+use crate::ApiInfo;
 
 // #[derive(Debug, Clone, PartialEq, Eq)]
 // pub enum LiveStatus {
@@ -195,4 +198,40 @@ pub fn offline_event(session_id: String) -> Value {
             "session_id": session_id
         }
     })
+}
+
+pub async fn change_title(new_title: &str, api_info: &ApiInfo) -> Result<(), reqwest::Error> {
+    // request twitch patch change title
+
+    let http_client = Client::new();
+
+    http_client
+        .patch("https://api.twitch.tv/helix/channels?broadcaster_id=143306668")
+        .bearer_auth(api_info.twitch_oauth.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "title": new_title,
+        }))
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+pub async fn get_title(api_info: &ApiInfo) -> Result<String, reqwest::Error> {
+    // request twitch patch change title
+
+    let http_client = Client::new();
+    
+    let res = http_client
+        .get("https://api.twitch.tv/helix/channels?broadcaster_id=143306668")
+        .bearer_auth(api_info.twitch_oauth.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .send()
+        .await?
+        // do TwtichApiResponse later
+        .json::<Value>()
+        .await?;
+
+    Ok(res["data"][0]["title"].as_str().unwrap().to_string())
 }

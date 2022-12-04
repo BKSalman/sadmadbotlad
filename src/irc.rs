@@ -5,6 +5,7 @@ use futures_util::{
 };
 use libmpv::Mpv;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use sadmadbotlad::twitch;
 use sadmadbotlad::{flatten, ApiInfo};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -113,13 +114,22 @@ async fn read(
                     let mut message = String::new();
 
                     if parsed_msg.starts_with("!ping") {
+                        // abstract this to a function that sends messages to the chat
                         message = String::from("PRIVMSG #sadmadladsalman :!pong");
 
                         println!("!pong");
+                    } else if parsed_msg.starts_with("!title ")
+                        && parsed_sender.to_ascii_lowercase() == "sadmadladsalman"
+                    {
+                        twitch::change_title(&parsed_msg, api_info).await?;
+                        message = format!("PRIVMSG #sadmadladsalman :Changed title to {}", parsed_msg);
+                    } else if parsed_msg.starts_with("!title")
+                    {
+                        message = format!("PRIVMSG #sadmadladsalman :Title: {}", twitch::get_title(api_info).await?);
                     } else if parsed_msg.starts_with("!sr ") {
                         let mut song_msg = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
                         let http_client = reqwest::Client::new();
-                        
+
                         // TODO: move this to a seprate function you lazy ass bitch
                         if !song_msg.starts_with("https://") {
                             let res = http_client
@@ -225,13 +235,13 @@ async fn read(
                             println!("{e}");
                         }
 
-                        message = format!("PRIVMSG #sadmadladsalman :volume set to {value}",);
+                        message = format!("PRIVMSG #sadmadladsalman :Volume set to {value}",);
                     } else if parsed_msg.starts_with("!volume") {
                         let Ok(volume) = mpv.get_property::<i64>("volume") else {
                             panic!("read:: volume");
                         };
 
-                        message = format!("PRIVMSG #sadmadladsalman :volume: {}", volume);
+                        message = format!("PRIVMSG #sadmadladsalman :Volume: {}", volume);
                     } else if parsed_msg.starts_with("!pause") {
                         if let Err(e) = mpv.pause() {
                             println!("{e}");
