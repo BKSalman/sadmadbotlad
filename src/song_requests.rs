@@ -2,36 +2,80 @@ use std::sync::{Arc, Mutex};
 
 use libmpv::events::{Event, PropertyData};
 use libmpv::{FileState, Mpv};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct SongRequestSetup {
     pub queue: Arc<Mutex<Queue>>,
     pub mpv: Arc<Mpv>,
+    sender: Sender<SongRequest>,
+    receiver: Receiver<SongRequest>,
 }
 
 impl SongRequestSetup {
     pub fn new() -> Self {
+        let (sender, receiver) = tokio::sync::mpsc::channel(200);
+
         Self {
             queue: Arc::new(Mutex::new(Queue::new())),
             mpv: Arc::new(setup_mpv()),
+            sender,
+            receiver,
         }
+    }
+
+    async fn sr(&mut self, irc_msg: &str, irc_sender: String) -> String {
+        // request is a video title
+        if !irc_msg.starts_with("https://") {
+            let video_info = youtube::video_info(irc_msg, api_info);
+
+            let song = SongRequest {
+                title: video_info.await.title,
+                user: irc_sender,
+                url: format!("https://www.youtube.com/watch/{}", video_info.id),
+            };
+
+            sender.send(song.clone()).await.expect("send song");
+
+            queue
+                .lock()
+                .expect("read:: queue lock")
+                .enqueue(song)
+                .expect("Enqueuing");
+
+            return format!("PRIVMSG #sadmadladsalman :Added: {}", song.title);
+        }
+        // request is a valid yt URL
+
+        let Ok(video_id) = youtube::video_id_from_url(irc_msg) else {
+        eprintln!("not a valid url");
+        return;
+    };
+
+        let video_title = youtube::video_title(irc_msg);
+
+        let song = SongRequest {
+            title: video_title,
+            user: parsed_sender,
+            url: format!("https://youtube.com/watch/{}", video_id),
+        };
+
+        sender.send(song.clone()).await.expect("send song");
+
+        queue
+            .lock()
+            .expect("read:: queue lock")
+            .enqueue(song)
+            .expect("Enqueuing");
+
+        format!("PRIVMSG #sadmadladsalman :Added: {}", video_title)
     }
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct SongRequest {
-    pub song_url: String,
+    pub title: String,
+    pub url: String,
     pub user: String,
-}
-
-#[allow(unused)]
-impl SongRequest {
-    pub fn empty() -> Self {
-        Self {
-            song_url: String::new(),
-            user: String::new(),
-        }
-    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -111,7 +155,7 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
                 ..
             }) => {
                 if let Some(song) = receiver.blocking_recv() {
-                    mpv.playlist_load_files(&[(&song.song_url, FileState::AppendPlay, None)])
+                    mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
                         .expect("play song");
 
                     let mut locked_queue = queue.lock().expect("queue lock");
@@ -126,13 +170,12 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
 
                     println!("{song:?}");
                 }
-
             }
             Err(libmpv::Error::Raw(e)) => {
                 queue.lock().expect("queue lock").current_song = None;
-                
+
                 println!("{e}");
-                
+
                 // let e_str = e.to_string();
 
                 // let e = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
@@ -142,7 +185,7 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
                 //     libmpv_sys::mpv_error_str(e.parse::<i32>().unwrap())
                 // );
             }
-            _ => {},
+            _ => {}
         }
     }
 }

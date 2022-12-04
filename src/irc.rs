@@ -4,23 +4,18 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use libmpv::Mpv;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use sadmadbotlad::twitch;
 use sadmadbotlad::{flatten, ApiInfo};
-use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tokio::{
     net::TcpStream,
     sync::{
-        mpsc::{self, Sender},
+        mpsc::Sender,
         MutexGuard,
     },
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::song_requests::{play_song, Queue, SongRequest, SongRequestSetup};
-
-const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
 
 pub async fn irc_connect() -> eyre::Result<()> {
     println!("Starting IRC");
@@ -36,8 +31,6 @@ pub async fn irc_connect() -> eyre::Result<()> {
     let ws_sender_ref = ws_sender.clone();
 
     login(ws_sender_ref.lock().await, &api_info).await?;
-
-    let (sender, receiver) = mpsc::channel::<SongRequest>(200);
 
     let sr_setup = SongRequestSetup::new();
 
@@ -127,92 +120,15 @@ async fn read(
                     {
                         message = format!("PRIVMSG #sadmadladsalman :Title: {}", twitch::get_title(api_info).await?);
                     } else if parsed_msg.starts_with("!sr ") {
-                        let mut song_msg = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
-                        let http_client = reqwest::Client::new();
-
-                        // TODO: move this to a seprate function you lazy ass bitch
-                        if !song_msg.starts_with("https://") {
-                            let res = http_client
-                                .get(format!(
-                                    "https://youtube.googleapis.com/youtube/v3/\
-                                    search?part=snippet&maxResults=1&q={}&type=video&key={}",
-                                    utf8_percent_encode(&song_msg, FRAGMENT),
-                                    api_info.google_api_key
-                                ))
-                                .send()
-                                .await?
-                                .json::<Value>()
-                                .await?;
-
-                            let video_title = res["items"][0]["snippet"]["title"]
-                                .as_str()
-                                .expect("yt video title");
-
-                            let video_id = res["items"][0]["id"]["videoId"]
-                                .as_str()
-                                .expect("yt video id");
-
-                            let song = SongRequest {
-                                user: parsed_sender,
-                                song_url: format!("https://www.youtube.com/watch/{}", video_id),
-                            };
-
-                            sender.send(song.clone()).await.expect("send song");
-
-                            queue
-                                .lock()
-                                .expect("read:: queue lock")
-                                .enqueue(song.clone())
-                                .expect("Enqueuing");
-
-                            message = format!("PRIVMSG #sadmadladsalman :Added: {}", video_title);
-                        } else {
-                            if song_msg.contains("?v=") && song_msg.contains("&") {
-                                song_msg = &song_msg[song_msg.find("?v=").unwrap() + 3
-                                    ..song_msg.find('&').unwrap()];
-                            } else if song_msg.contains("?v=") {
-                                song_msg = &song_msg[song_msg.find("?v=").unwrap() + 3..];
-                            } else if song_msg.contains("/watch/") {
-                                song_msg =
-                                    song_msg.rsplit_once('/').expect("yt watch format link").1;
-                            }
-
-                            let res = http_client
-                                .get(format!(
-                                    "https://youtube.googleapis.com/youtube/v3/\
-                                    search?part=snippet&maxResults=1&q={}&type=video&key={}",
-                                    song_msg, api_info.google_api_key
-                                ))
-                                .send()
-                                .await?
-                                .json::<Value>()
-                                .await?;
-
-                            let video_title = res["items"][0]["snippet"]["title"]
-                                .as_str()
-                                .expect("yt video title");
-
-                            let song = SongRequest {
-                                user: parsed_sender,
-                                song_url: format!("https://youtube.com/watch/{}", song_msg),
-                            };
-
-                            sender.send(song.clone()).await.expect("send song");
-
-                            queue
-                                .lock()
-                                .expect("read:: queue lock")
-                                .enqueue(song.clone())
-                                .expect("Enqueuing");
-
-                            message = format!("PRIVMSG #sadmadladsalman :Added: {}", video_title);
-                        }
+                        // discard "!sr " and get the requested song
+                        let sr_msg = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
+                        message = sr(sr_msg, parsed_sender).await;
                     } else if parsed_msg.starts_with("!skip") {
                         if let Err(e) = mpv.playlist_next_force() {
                             println!("{e}");
                         }
 
-                        message = format!(
+                        let video_title = message = format!(
                             "PRIVMSG #sadmadladsalman :Skipped {}",
                             queue
                                 .lock()
@@ -220,7 +136,7 @@ async fn read(
                                 .current_song
                                 .as_ref()
                                 .expect("read::!skip: current song")
-                                .song_url
+                                .title
                         );
 
                         if queue.lock().expect("read:: queue").rear == 0 {
@@ -269,7 +185,7 @@ async fn read(
                             if let Some(song) = s {
                                 queue.push_str(&format!(
                                     " {i}- {} :: by {}",
-                                    song.song_url, song.user,
+                                    song.url, song.user,
                                 ));
                             }
                         }
@@ -289,7 +205,7 @@ async fn read(
                         if let Some(current_song) = locked_queue.current_song.as_ref() {
                             message = format!(
                                 "PRIVMSG #sadmadladsalman :Current song: {} - by {}",
-                                current_song.song_url, current_song.user,
+                                current_song.title, current_song.user,
                             );
                         } else {
                             message = String::from("PRIVMSG #sadmadladsalman :No song playing");
@@ -343,3 +259,4 @@ fn parse_message(msg: &str) -> String {
 fn parse_sender(msg: &str) -> String {
     msg.trim()[1..msg.find('!').unwrap()].to_string()
 }
+
