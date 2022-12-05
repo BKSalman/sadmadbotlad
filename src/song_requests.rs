@@ -2,6 +2,7 @@ use libmpv::events::{Event, PropertyData};
 use libmpv::{FileState, Mpv};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
+use crate::irc::to_irc_msg;
 use crate::{youtube, ApiInfo};
 // use tokio::sync::broadcast::Sender;
 // // use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
@@ -50,7 +51,7 @@ impl SongRequestSetup {
 
             self.queue.enqueue(&song).expect("Enqueuing");
 
-            return Ok(format!("PRIVMSG #sadmadladsalman :Added: {}", song.title));
+            return Ok(to_irc_msg(&format!("Added: {}", song.title), &self.api_info.user));
         }
         // request is a valid yt URL
 
@@ -77,7 +78,7 @@ impl SongRequestSetup {
 
         self.queue.enqueue(&song).expect("Enqueuing");
 
-        return Ok(format!("PRIVMSG #sadmadladsalman :Added: {}", video_title));
+        return Ok(to_irc_msg(&format!("Added: {}", video_title), &self.api_info.user));
     }
 
     pub fn skip(&mut self) -> Result<String, eyre::Report> {
@@ -85,10 +86,10 @@ impl SongRequestSetup {
             if let Err(e) = self.mpv.playlist_next_force() {
                 println!("{e}");
             }
-            let message = format!("PRIVMSG #sadmadladsalman :Skipped {}", song.title);
+            let message = to_irc_msg(&format!("Skipped {}", song.title), &self.api_info.user);
             return Ok(message);
         } else {
-            let message = String::from("PRIVMSG #sadmadladsalman :Queue is empty");
+            let message = to_irc_msg("Queue is empty", &self.api_info.user);
             return Ok(message);
         }
     }

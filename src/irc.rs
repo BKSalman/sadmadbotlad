@@ -77,8 +77,7 @@ async fn read(
                 } else if parsed_msg.starts_with("!sr ") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Sr((parsed_sender, parsed_msg)))))?;
                 } else if parsed_msg.starts_with("!sr") {
-                    let e = String::from("PRIVMSG #sadmadladsalman :Correct usage: !sr <Link>");
-                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid(e))))?;
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid)))?;
                 } else if parsed_msg.starts_with("!skip") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))?;
                 }
@@ -273,4 +272,8 @@ fn parse_message(msg: &str) -> String {
 
 fn parse_sender(msg: &str) -> String {
     msg.trim()[1..msg.find('!').unwrap()].to_string()
+}
+
+pub fn to_irc_msg(msg: &str, user: &str) -> String {
+    format!("PRIVMSG #{} :{}", user, msg)
 }

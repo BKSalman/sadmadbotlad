@@ -9,7 +9,7 @@ use tokio::{
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::{
-    irc::irc_login,
+    irc::{irc_login, to_irc_msg},
     song_requests::{SongRequest, SongRequestSetup},
 };
 
@@ -35,7 +35,7 @@ pub enum IrcChat {
     Ping,
     Sr((String, String)),
     SkipSr,
-    Invalid(String),
+    Invalid,
 }
 
 #[derive(Debug)]
@@ -51,7 +51,7 @@ pub async fn event_handler(
 ) -> Result<(), eyre::Report> {
     let mut sr_setup = SongRequestSetup::new();
     let song_sender = Arc::new(song_sender);
-
+    
     irc_login(&mut ws_sender, &sr_setup.api_info).await?;
 
     while let Some(event) = recv.recv().await {
@@ -60,18 +60,14 @@ pub async fn event_handler(
                 IrcEvent::WebSocket(event) => match event {
                     IrcWs::Ping => {
                         ws_sender
-                            .send(Message::Text(String::from(
-                                "PRIVMSG #sadmadladsalman :!pong",
-                            )))
+                            .send(Message::Text(String::from("PONG :tmi.twitch.tv")))
                             .await?;
                     }
                 },
                 IrcEvent::Chat(event) => match event {
                     IrcChat::Ping => {
                         ws_sender
-                            .send(Message::Text(String::from(
-                                "PRIVMSG #sadmadladsalman :!pong",
-                            )))
+                            .send(Message::Text(to_irc_msg("!pong", &sr_setup.api_info.user)))
                             .await?;
                     }
                     IrcChat::Sr((sender, song)) => {
@@ -82,7 +78,8 @@ pub async fn event_handler(
                         let message = sr_setup.skip()?;
                         ws_sender.send(Message::Text(message)).await?;
                     }
-                    IrcChat::Invalid(e) => {
+                    IrcChat::Invalid => {
+                        let e = to_irc_msg("Invalid", &sr_setup.api_info.user);
                         ws_sender.send(Message::Text(e)).await?;
                     }
                 },
