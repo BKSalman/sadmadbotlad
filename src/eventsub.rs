@@ -4,8 +4,8 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use reqwest::Url;
-use sadmadbotlad::flatten;
-use sadmadbotlad::{
+use crate::flatten;
+use crate::{
     discord::online_notification,
     twitch::{offline_event, online_event, TwitchApiResponse, WsEventSub},
     ApiInfo,

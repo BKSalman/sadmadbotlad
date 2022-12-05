@@ -1,15 +1,12 @@
 use sadmadbotlad::flatten;
 use eyre::WrapErr;
-use irc::irc_connect;
-use eventsub::eventsub;
+
+use sadmadbotlad::{
+    irc::irc_connect,
+    eventsub::eventsub,
+};
 
 mod util;
-mod irc;
-mod song_requests;
-mod eventsub;
-mod youtube;
-// mod alerts;
-
 use util::install_eyre;
 
 #[tokio::main]

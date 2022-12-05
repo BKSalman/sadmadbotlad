@@ -1,73 +1,96 @@
-use std::sync::{Arc, Mutex};
-
 use libmpv::events::{Event, PropertyData};
 use libmpv::{FileState, Mpv};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
+
+use crate::{youtube, ApiInfo};
+// use tokio::sync::broadcast::Sender;
+// // use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
+
+// use crate::youtube;
 
 pub struct SongRequestSetup {
-    pub queue: Arc<Mutex<Queue>>,
-    pub mpv: Arc<Mpv>,
-    sender: Sender<SongRequest>,
-    receiver: Receiver<SongRequest>,
+    pub queue: Queue,
+    pub mpv: Mpv,
+    pub api_info: ApiInfo,
 }
 
 impl SongRequestSetup {
     pub fn new() -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(200);
-
         Self {
-            queue: Arc::new(Mutex::new(Queue::new())),
-            mpv: Arc::new(setup_mpv()),
-            sender,
-            receiver,
+            queue: Queue::new(),
+            mpv: setup_mpv(),
+            api_info: ApiInfo::new(),
         }
     }
 
-    async fn sr(&mut self, irc_msg: &str, irc_sender: String) -> String {
+    pub async fn sr(
+        &mut self,
+        irc_msg: &str,
+        irc_sender: String,
+        song_sender: &Sender<SongRequest>,
+    ) -> Result<String, std::io::Error> {
         // request is a video title
         if !irc_msg.starts_with("https://") {
-            let video_info = youtube::video_info(irc_msg, api_info);
+            let video_info = youtube::video_info(irc_msg, &self.api_info)
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        "couldn't get video info",
+                    )
+                })?;
 
             let song = SongRequest {
-                title: video_info.await.title,
+                title: video_info.title,
                 user: irc_sender,
                 url: format!("https://www.youtube.com/watch/{}", video_info.id),
             };
 
-            sender.send(song.clone()).await.expect("send song");
+            song_sender.send(song.clone()).await.expect("send song");
 
-            queue
-                .lock()
-                .expect("read:: queue lock")
-                .enqueue(song)
-                .expect("Enqueuing");
+            self.queue.enqueue(&song).expect("Enqueuing");
 
-            return format!("PRIVMSG #sadmadladsalman :Added: {}", song.title);
+            return Ok(format!("PRIVMSG #sadmadladsalman :Added: {}", song.title));
         }
         // request is a valid yt URL
 
         let Ok(video_id) = youtube::video_id_from_url(irc_msg) else {
-        eprintln!("not a valid url");
-        return;
-    };
-
-        let video_title = youtube::video_title(irc_msg);
+                eprintln!("not a valid url");
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid URL"));
+            };
+        let video_title = youtube::video_title(irc_msg, &self.api_info)
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "couldn't get video info",
+                )
+            })?;
 
         let song = SongRequest {
-            title: video_title,
-            user: parsed_sender,
+            title: video_title.clone(),
+            user: irc_sender,
             url: format!("https://youtube.com/watch/{}", video_id),
         };
 
-        sender.send(song.clone()).await.expect("send song");
+        song_sender.send(song.clone()).await.expect("send song");
 
-        queue
-            .lock()
-            .expect("read:: queue lock")
-            .enqueue(song)
-            .expect("Enqueuing");
+        self.queue.enqueue(&song).expect("Enqueuing");
 
-        format!("PRIVMSG #sadmadladsalman :Added: {}", video_title)
+        return Ok(format!("PRIVMSG #sadmadladsalman :Added: {}", video_title));
+    }
+
+    pub fn skip(&mut self) -> Result<String, eyre::Report> {
+        if let Some(song) = self.queue.dequeue().expect("skip:: dequeue") {
+            if let Err(e) = self.mpv.playlist_next_force() {
+                println!("{e}");
+            }
+            let message = format!("PRIVMSG #sadmadladsalman :Skipped {}", song.title);
+            return Ok(message);
+        } else {
+            let message = String::from("PRIVMSG #sadmadladsalman :Queue is empty");
+            return Ok(message);
+        }
     }
 }
 
@@ -90,20 +113,28 @@ impl Queue {
         Self::default()
     }
 
-    pub fn enqueue(&mut self, item: SongRequest) -> Result<(), &str> {
+    pub fn enqueue(&mut self, item: &SongRequest) -> Result<(), &str> {
         if self.rear >= 20 {
             return Err("queue is full");
         }
 
-        self.queue[self.rear] = Some(item);
+        self.queue[self.rear] = Some(item.clone());
 
         self.rear += 1;
 
         Ok(())
     }
 
-    pub fn dequeue(&mut self) -> Result<(), &'static str> {
+    pub fn dequeue(&mut self) -> Result<Option<SongRequest>, eyre::Report> {
+        if self.rear == 0 {
+            let current_song = self.current_song.clone();
+            self.current_song = None;
+            return Ok(current_song);
+        }
+        
         self.current_song = self.queue[0].clone();
+
+        let dequeued_song = self.queue[0].clone();
 
         for i in 0..self.rear - 1 {
             self.queue[i] = self.queue[i + 1].clone();
@@ -116,7 +147,7 @@ impl Queue {
 
         self.rear -= 1;
 
-        Ok(())
+        Ok(dequeued_song)
     }
 }
 
@@ -132,7 +163,11 @@ pub fn setup_mpv() -> Mpv {
     mpv
 }
 
-pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<Mutex<Queue>>) {
+pub fn play_song(
+    mpv: &Mpv,
+    mut song_receiver: Receiver<SongRequest>,
+    event_sender: UnboundedSender<crate::event_handler::Event>,
+) -> Result<(), eyre::Report> {
     let mut event_ctx = mpv.create_event_context();
 
     event_ctx
@@ -154,36 +189,19 @@ pub fn play_song(mut receiver: Receiver<SongRequest>, mpv: Arc<Mpv>, queue: Arc<
                 change: PropertyData::Flag(true),
                 ..
             }) => {
-                if let Some(song) = receiver.blocking_recv() {
+                if let Some(song) = song_receiver.blocking_recv() {
                     mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
                         .expect("play song");
 
-                    let mut locked_queue = queue.lock().expect("queue lock");
-
-                    if locked_queue.rear == 0 {
-                        locked_queue.current_song = None;
-                    }
-
-                    if let Err(e) = locked_queue.dequeue() {
-                        println!("play_song:: {e}");
-                    }
-
-                    println!("{song:?}");
+                    event_sender.send(crate::event_handler::Event::MpvEvent(
+                        crate::event_handler::MpvEvent::DequeueSong,
+                    ))?;
                 }
             }
             Err(libmpv::Error::Raw(e)) => {
-                queue.lock().expect("queue lock").current_song = None;
-
-                println!("{e}");
-
-                // let e_str = e.to_string();
-
-                // let e = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
-
-                // println!(
-                //     "MpvEvent:: {e}:{}",
-                //     libmpv_sys::mpv_error_str(e.parse::<i32>().unwrap())
-                // );
+                event_sender.send(crate::event_handler::Event::MpvEvent(
+                    crate::event_handler::MpvEvent::Error(e),
+                ))?;
             }
             _ => {}
         }

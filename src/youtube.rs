@@ -14,7 +14,7 @@
 // }
 
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use sadmadbotlad::ApiInfo;
+use crate::ApiInfo;
 use serde_json::Value;
 
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
