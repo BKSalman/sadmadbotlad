@@ -2,6 +2,7 @@ use futures_util::{sink::SinkExt, StreamExt};
 use futures_util::stream::SplitSink;
 use libmpv::Mpv;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{Sender, UnboundedReceiver},
@@ -12,6 +13,8 @@ use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::{SongRequest, SongRequestSetup},
 };
+
+const RULES: &str = include_str!("../rules.txt");
 
 #[derive(Debug)]
 pub enum Event {
@@ -43,6 +46,7 @@ pub enum IrcChat {
     GetVolume,
     Pause,
     Play,
+    Rules,
 }
 
 #[derive(Debug)]
@@ -120,7 +124,13 @@ pub async fn event_handler(
                     }
                     IrcChat::Queue => {
                         println!("{:#?}", sr_setup.queue);
-                        // ws_sender.send(Message::Text(to_irc_message(format!("{:?}", sr_setup.queue)))).await?;
+                        let mut message = String::new();
+                        for (s, i) in sr_setup.queue.queue.iter().zip(1..=20) {
+                            if let Some(song) = s {
+                                message.push_str(&format!(" {i}- {} :: by {}", song.url, song.user,));
+                            }
+                        }
+                        ws_sender.send(Message::Text(to_irc_message(message))).await?;
                     }
                     IrcChat::CurrentSong => {
                         if let Some(current_song) = sr_setup.queue.current_song.as_ref() {
@@ -181,6 +191,14 @@ pub async fn event_handler(
                                 .await?;
                         }
                     }
+                    IrcChat::Rules => {
+                        for rule in RULES.lines() {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(rule)))
+                                .await?;
+                            std::thread::sleep(Duration::from_millis(500));
+                        }
+                    },
                 },
             },
             Event::MpvEvent(mpv_event) => match mpv_event {
