@@ -4,6 +4,11 @@ use tokio::task::JoinHandle;
 
 pub mod discord;
 pub mod twitch;
+pub mod youtube;
+pub mod song_requests;
+pub mod eventsub;
+pub mod irc;
+pub mod event_handler;
 
 #[derive(Deserialize)]
 pub struct ApiInfo {
