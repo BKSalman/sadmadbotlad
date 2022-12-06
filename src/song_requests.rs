@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use libmpv::events::{Event, PropertyData};
 use libmpv::{FileState, Mpv};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
-use crate::irc::to_irc_msg;
+use crate::irc::to_irc_message;
 use crate::{youtube, ApiInfo};
 // use tokio::sync::broadcast::Sender;
 // // use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
@@ -11,7 +13,6 @@ use crate::{youtube, ApiInfo};
 
 pub struct SongRequestSetup {
     pub queue: Queue,
-    pub mpv: Mpv,
     pub api_info: ApiInfo,
 }
 
@@ -19,7 +20,6 @@ impl SongRequestSetup {
     pub fn new() -> Self {
         Self {
             queue: Queue::new(),
-            mpv: setup_mpv(),
             api_info: ApiInfo::new(),
         }
     }
@@ -51,7 +51,7 @@ impl SongRequestSetup {
 
             self.queue.enqueue(&song).expect("Enqueuing");
 
-            return Ok(to_irc_msg(&format!("Added: {}", song.title), &self.api_info.user));
+            return Ok(to_irc_message(format!("Added: {}", song.title)));
         }
         // request is a valid yt URL
 
@@ -78,20 +78,7 @@ impl SongRequestSetup {
 
         self.queue.enqueue(&song).expect("Enqueuing");
 
-        return Ok(to_irc_msg(&format!("Added: {}", video_title), &self.api_info.user));
-    }
-
-    pub fn skip(&mut self) -> Result<String, eyre::Report> {
-        if let Some(song) = self.queue.dequeue().expect("skip:: dequeue") {
-            if let Err(e) = self.mpv.playlist_next_force() {
-                println!("{e}");
-            }
-            let message = to_irc_msg(&format!("Skipped {}", song.title), &self.api_info.user);
-            return Ok(message);
-        } else {
-            let message = to_irc_msg("Queue is empty", &self.api_info.user);
-            return Ok(message);
-        }
+        return Ok(to_irc_message(format!("Added: {}", video_title)));
     }
 }
 
@@ -126,16 +113,12 @@ impl Queue {
         Ok(())
     }
 
-    pub fn dequeue(&mut self) -> Result<Option<SongRequest>, eyre::Report> {
+    pub fn dequeue(&mut self) {
         if self.rear == 0 {
-            let current_song = self.current_song.clone();
             self.current_song = None;
-            return Ok(current_song);
         }
-        
-        self.current_song = self.queue[0].clone();
 
-        let dequeued_song = self.queue[0].clone();
+        self.current_song = self.queue[0].clone();
 
         for i in 0..self.rear - 1 {
             self.queue[i] = self.queue[i + 1].clone();
@@ -147,8 +130,6 @@ impl Queue {
         }
 
         self.rear -= 1;
-
-        Ok(dequeued_song)
     }
 }
 
@@ -165,7 +146,7 @@ pub fn setup_mpv() -> Mpv {
 }
 
 pub fn play_song(
-    mpv: &Mpv,
+    mpv: Arc<Mpv>,
     mut song_receiver: Receiver<SongRequest>,
     event_sender: UnboundedSender<crate::event_handler::Event>,
 ) -> Result<(), eyre::Report> {
@@ -191,7 +172,9 @@ pub fn play_song(
                 ..
             }) => {
                 if let Some(song) = song_receiver.blocking_recv() {
-                    mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
+                    println!("{song:#?}");
+                    mpv
+                        .playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
                         .expect("play song");
 
                     event_sender.send(crate::event_handler::Event::MpvEvent(

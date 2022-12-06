@@ -1,18 +1,3 @@
-// struct YoutubeApiResponse {
-//     kind: String,
-//     etag: String,
-//     next_page_token: String,
-//     prev_page_token: String,
-//     region_code: String,
-//     pageInfo: PageInfo,
-//     items: Vec<SearchResource>
-// }
-
-// struct PageInfo {
-//     total_results: i32,
-//     results_per_page: i32,
-// }
-
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use crate::ApiInfo;
 use serde_json::Value;
@@ -30,6 +15,8 @@ pub fn video_id_from_url(url: &str) -> Result<&str, &str> {
     } else if url.contains("?v=") {
         return Ok(&url[url.find("?v=").unwrap() + 3..]);
     } else if url.contains("/watch/") {
+        return Ok(url.rsplit_once('/').expect("yt watch format link").1);
+    } else if url.contains("https://youtu.be") {
         return Ok(url.rsplit_once('/').expect("yt watch format link").1);
     }
 

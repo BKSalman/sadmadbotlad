@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     event_handler::{self, event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
-    song_requests::{play_song, setup_mpv, SongRequest},
+    song_requests::{SongRequest, setup_mpv, play_song},
     ApiInfo,
 };
 use eyre::WrapErr;
@@ -29,12 +29,19 @@ pub async fn irc_connect() -> eyre::Result<()> {
 
     let mpv = Arc::new(setup_mpv());
 
+    let mpv_c = mpv.clone();
+    
     let join_handle =
-        std::thread::spawn(move || play_song(mpv.as_ref(), song_receiver, e_sender_c));
+        std::thread::spawn(move || play_song(mpv_c, song_receiver, e_sender_c));
 
     tokio::try_join!(
         flatten(tokio::spawn(read(e_sender, ws_receiver))),
-        flatten(tokio::spawn(event_handler(song_sender, e_receiver, ws_sender))),
+        flatten(tokio::spawn(event_handler(
+            song_sender,
+            mpv,
+            e_receiver,
+            ws_sender
+        ))),
     )
     .wrap_err_with(|| "songs")?;
 
@@ -71,15 +78,37 @@ async fn read(
             Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                 let parsed_sender = parse_sender(&msg);
                 let parsed_msg = parse_message(&msg);
-                
+
                 if parsed_msg.starts_with("!ping") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
                 } else if parsed_msg.starts_with("!sr ") {
-                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Sr((parsed_sender, parsed_msg)))))?;
+                    let song = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Sr((
+                        parsed_sender,
+                        song.to_string(),
+                    )))))?;
                 } else if parsed_msg.starts_with("!sr") {
-                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid)))?;
+                    let e = String::from("Correct usage: !sr <URL>");
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid(e))))?;
                 } else if parsed_msg.starts_with("!skip") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))?;
+                } else if parsed_msg.starts_with("!queue") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Queue)))?;
+                } else if parsed_msg.starts_with("!currentsong") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSong)))?;
+                } else if parsed_msg.starts_with("!volume ") {
+                    let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
+                        let e = String::from("Provide number");
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid(e))))?;
+                        continue;
+                    };
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SetVolume(value))))?;
+                } else if parsed_msg.starts_with("!volume") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?;
+                } else if parsed_msg.starts_with("!pause") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?;
+                } else if parsed_msg.starts_with("!play") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?;
                 }
             }
             Ok(Message::Text(msg)) => {
@@ -274,6 +303,6 @@ fn parse_sender(msg: &str) -> String {
     msg.trim()[1..msg.find('!').unwrap()].to_string()
 }
 
-pub fn to_irc_msg(msg: &str, user: &str) -> String {
-    format!("PRIVMSG #{} :{}", user, msg)
+pub fn to_irc_message(msg: impl Into<String>) -> String {
+    format!("PRIVMSG #sadmadladsalman :{}", msg.into())
 }

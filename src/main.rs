@@ -33,7 +33,7 @@ async fn run() -> Result<(), eyre::Report> {
         flatten(tokio::spawn(async move {
             irc_connect().await
         })),
-    ).wrap_err_with(|| "run")?;
+    ).wrap_err_with(|| "Run")?;
 
     Ok(())
 }
