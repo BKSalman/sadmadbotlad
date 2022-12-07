@@ -214,7 +214,6 @@ pub async fn event_handler(
                     IrcChat::Rules => {
                         for rule in RULES.lines() {
                             ws_sender.send(Message::Text(to_irc_message(rule))).await?;
-                            tokio::time::sleep(Duration::from_millis(500)).await;
                         }
                     }
                     IrcChat::GetTitle => {
