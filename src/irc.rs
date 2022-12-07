@@ -54,7 +54,7 @@ pub async fn irc_login<'a>(
     ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     api_info: &ApiInfo,
 ) -> Result<(), eyre::Report> {
-    let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_oauth));
+    let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_access_token));
 
     ws_sender.send(pass_msg).await?;
 
@@ -111,6 +111,8 @@ async fn read(
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?;
                 } else if parsed_msg.starts_with("!قوانين") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Rules)))?;
+                }else if !parsed_msg.starts_with("!title ") && parsed_msg.starts_with("!title") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetTitle)))?;
                 }
             }
             Ok(Message::Text(msg)) => {
@@ -121,7 +123,11 @@ async fn read(
                 }
             }
             Ok(_) => {}
-            Err(e) => println!("{e}"),
+            Err(e) => {
+                println!("{e}");
+                //TODO: do this, bitch
+                event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Unauthorized)))?;
+            },
         }
     }
 

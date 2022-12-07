@@ -27,12 +27,8 @@ async fn run() -> Result<(), eyre::Report> {
     // let (sender, recv) = watch::channel(live);
 
     tokio::try_join!(
-        flatten(tokio::spawn(async move {
-            eventsub().await
-        })),
-        flatten(tokio::spawn(async move {
-            irc_connect().await
-        })),
+        flatten(tokio::spawn(eventsub())),
+        flatten(tokio::spawn(irc_connect())),
     ).wrap_err_with(|| "Run")?;
 
     Ok(())

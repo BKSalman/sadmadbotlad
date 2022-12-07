@@ -1,5 +1,5 @@
-use futures_util::{sink::SinkExt, StreamExt};
 use futures_util::stream::SplitSink;
+use futures_util::{sink::SinkExt, StreamExt};
 use libmpv::Mpv;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,8 +7,9 @@ use tokio::{
     net::TcpStream,
     sync::mpsc::{Sender, UnboundedReceiver},
 };
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream, connect_async};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use crate::twitch::{get_title, set_title, refresh_access_token};
 use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::{SongRequest, SongRequestSetup},
@@ -32,6 +33,7 @@ pub enum IrcEvent {
 pub enum IrcWs {
     Ping,
     Reconnect,
+    Unauthorized,
 }
 
 #[derive(Debug)]
@@ -47,6 +49,8 @@ pub enum IrcChat {
     Pause,
     Play,
     Rules,
+    GetTitle,
+    SetTitle(String),
 }
 
 #[derive(Debug)]
@@ -61,7 +65,7 @@ pub async fn event_handler(
     mut recv: UnboundedReceiver<Event>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 ) -> Result<(), eyre::Report> {
-    let mut sr_setup = SongRequestSetup::new();
+    let mut sr_setup = SongRequestSetup::new()?;
     let song_sender = Arc::new(song_sender);
 
     irc_login(&mut ws_sender, &sr_setup.api_info).await?;
@@ -81,13 +85,16 @@ pub async fn event_handler(
                         let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
                         let (sender, _recv) = socket.split();
-                        
+
                         ws_sender = sender;
 
                         // TODO: do this later lazy ass bitch
                         // ws_receiver = recv;
 
                         irc_login(&mut ws_sender, &sr_setup.api_info).await?;
+                    }
+                    IrcWs::Unauthorized => {
+                        refresh_access_token(&mut sr_setup.api_info).await?;
                     }
                 },
                 IrcEvent::Chat(event) => match event {
@@ -101,15 +108,19 @@ pub async fn event_handler(
                         ws_sender.send(Message::Text(message)).await?;
                     }
                     IrcChat::SkipSr => {
+                        let mut message = String::new();
                         if let Some(song) = &sr_setup.queue.current_song {
                             if let Ok(_) = mpv.playlist_next_force() {
-                                to_irc_message(format!("Skipped {}", song.title));
+                                message = to_irc_message(format!("Skipped: {}", song.title));
                             }
                         } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("No song playing")))
-                                .await?;
+                            message = to_irc_message("No song playing");
                         }
+
+                        ws_sender
+                            .send(Message::Text(message))
+                            .await?;
+
                         // let e_str = e.to_string();
 
                         // let error = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
@@ -127,10 +138,19 @@ pub async fn event_handler(
                         let mut message = String::new();
                         for (s, i) in sr_setup.queue.queue.iter().zip(1..=20) {
                             if let Some(song) = s {
-                                message.push_str(&format!(" {i}- {} :: by {}", song.url, song.user,));
+                                message
+                                    .push_str(&format!(" {i}- {} :: by {}", song.url, song.user,));
                             }
                         }
-                        ws_sender.send(Message::Text(to_irc_message(message))).await?;
+                        if message.chars().count() <= 0 {
+                            ws_sender
+                                .send(Message::Text(to_irc_message("No songs in queue, try !currentsong")))
+                                .await?;
+                            continue;
+                        }
+                        ws_sender
+                            .send(Message::Text(to_irc_message(message)))
+                            .await?;
                     }
                     IrcChat::CurrentSong => {
                         if let Some(current_song) = sr_setup.queue.current_song.as_ref() {
@@ -193,12 +213,28 @@ pub async fn event_handler(
                     }
                     IrcChat::Rules => {
                         for rule in RULES.lines() {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(rule)))
-                                .await?;
-                            std::thread::sleep(Duration::from_millis(500));
+                            ws_sender.send(Message::Text(to_irc_message(rule))).await?;
+                            tokio::time::sleep(Duration::from_millis(500)).await;
                         }
-                    },
+                    }
+                    IrcChat::GetTitle => {
+                        let title = get_title(&mut sr_setup.api_info).await?;
+                        ws_sender
+                            .send(Message::Text(to_irc_message(format!(
+                                "Current stream title: {}",
+                                title
+                            ))))
+                            .await?;
+                    }
+                    IrcChat::SetTitle(title) => {
+                        set_title(&title, &mut sr_setup.api_info).await?;
+                        ws_sender
+                            .send(Message::Text(to_irc_message(format!(
+                                "Set stream title to: {}",
+                                title
+                            ))))
+                            .await?;
+                    }
                 },
             },
             Event::MpvEvent(mpv_event) => match mpv_event {

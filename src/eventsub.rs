@@ -15,8 +15,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 
 pub async fn eventsub() -> Result<(), eyre::Report> {
     println!("Starting eventsub");
-
-    let api_info = ApiInfo::new();
+    let api_info = ApiInfo::new()?;
 
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
@@ -80,7 +79,7 @@ async fn read(
                     } else {
                         if let Ok(_) = http_client
                             .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-                            .bearer_auth(api_info.twitch_oauth.clone())
+                            .bearer_auth(api_info.twitch_access_token.clone())
                             .header("Client-Id", api_info.client_id.clone())
                             .json(&online_event(session.id.clone()))
                             .send()
@@ -93,7 +92,7 @@ async fn read(
 
                         if let Ok(_) = http_client
                             .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-                            .bearer_auth(std::env::var("TWITCH_OAUTH").expect("twitch oauth token"))
+                            .bearer_auth(api_info.twitch_access_token.clone())
                             .header("Client-Id", api_info.client_id.clone())
                             .json(&offline_event(session.id))
                             .send()
@@ -113,7 +112,7 @@ async fn read(
                     if subscription.r#type == "stream.online" {
                         match http_client
                             .get("https://api.twitch.tv/helix/streams?user_id=143306668")
-                            .bearer_auth(api_info.twitch_oauth.clone())
+                            .bearer_auth(api_info.twitch_access_token.clone())
                             .header("Client-Id", api_info.client_id.clone())
                             .send()
                             .await?
