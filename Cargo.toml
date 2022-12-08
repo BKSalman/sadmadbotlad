@@ -21,4 +21,5 @@ libmpv = "2.0.1"
 libmpv-sys = "3.1.0"
 percent-encoding = "2.2.0"
 regex = "1.7.0"
+tokio-retry = "0.3.0"
 

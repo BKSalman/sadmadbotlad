@@ -27,7 +27,7 @@ impl SongRequestSetup {
     pub async fn sr(
         &mut self,
         irc_msg: &str,
-        irc_sender: String,
+        irc_sender: impl Into<String>,
         song_sender: &Sender<SongRequest>,
     ) -> Result<String, std::io::Error> {
         // request is a video title
@@ -43,7 +43,7 @@ impl SongRequestSetup {
 
             let song = SongRequest {
                 title: video_info.title,
-                user: irc_sender,
+                user: irc_sender.into(),
                 url: format!("https://www.youtube.com/watch/{}", video_info.id),
             };
 
@@ -70,7 +70,7 @@ impl SongRequestSetup {
 
         let song = SongRequest {
             title: video_title.clone(),
-            user: irc_sender,
+            user: irc_sender.into(),
             url: format!("https://youtube.com/watch/{}", video_id),
         };
 

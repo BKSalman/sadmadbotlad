@@ -21,6 +21,8 @@ pub async fn irc_connect() -> eyre::Result<()> {
 
     let (ws_sender, ws_receiver) = socket.split();
 
+    let ws_receiver = Arc::new(tokio::sync::Mutex::new(ws_receiver));
+
     let (e_sender, e_receiver) = tokio::sync::mpsc::unbounded_channel::<event_handler::Event>();
 
     let (song_sender, song_receiver) = tokio::sync::mpsc::channel::<SongRequest>(200);
@@ -35,12 +37,13 @@ pub async fn irc_connect() -> eyre::Result<()> {
         std::thread::spawn(move || play_song(mpv_c, song_receiver, e_sender_c));
 
     tokio::try_join!(
-        flatten(tokio::spawn(read(e_sender, ws_receiver))),
+        flatten(tokio::spawn(read(e_sender, ws_receiver.clone()))),
         flatten(tokio::spawn(event_handler(
             song_sender,
             mpv,
             e_receiver,
-            ws_sender
+            ws_sender,
+            ws_receiver,
         ))),
     )
     .wrap_err_with(|| "songs")?;
@@ -71,16 +74,22 @@ pub async fn irc_login<'a>(
 
 async fn read(
     event_sender: UnboundedSender<Event>,
-    mut ws_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
 ) -> eyre::Result<()> {
-    while let Some(msg) = ws_receiver.next().await {
+    let mut locked_ws_receiver = ws_receiver.lock().await;
+    
+    while let Some(msg) = locked_ws_receiver.next().await {
         match msg {
+            Ok(Message::Ping(ping)) => {
+                println!("IRC WebSocket Ping {ping:?}");
+                event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Ping(ping))))?;
+            }
             Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                 let parsed_sender = parse_sender(&msg);
                 let parsed_msg = parse_message(&msg);
 
                 if parsed_msg.starts_with("!ping") {
-                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ChatPing)))?;
                 } else if parsed_msg.starts_with("!sr ") {
                     let song = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Sr((
@@ -117,7 +126,7 @@ async fn read(
             }
             Ok(Message::Text(msg)) => {
                 if msg.contains("PING") {
-                    event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Ping)))?;
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
                 } else if msg.contains("RECONNECT") {
                     
                 }
@@ -125,8 +134,11 @@ async fn read(
             Ok(_) => {}
             Err(e) => {
                 println!("{e}");
-                //TODO: do this, bitch
-                event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Unauthorized)))?;
+                // event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Unauthorized)))?;
+                // this looks dangerous... I don't trust it
+                // irc_connect().await?;
+
+                return Err(eyre::ErrReport::new(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Unautherized")));
             },
         }
     }

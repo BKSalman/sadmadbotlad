@@ -1,8 +1,7 @@
-use futures_util::stream::SplitSink;
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{sink::SinkExt, StreamExt};
 use libmpv::Mpv;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{Sender, UnboundedReceiver},
@@ -31,7 +30,7 @@ pub enum IrcEvent {
 
 #[derive(Debug)]
 pub enum IrcWs {
-    Ping,
+    Ping(Vec<u8>),
     Reconnect,
     Unauthorized,
 }
@@ -40,6 +39,7 @@ pub enum IrcWs {
 pub enum IrcChat {
     Invalid(String),
     Ping,
+    ChatPing,
     Sr((String, String)),
     SkipSr,
     Queue,
@@ -64,6 +64,7 @@ pub async fn event_handler(
     mpv: Arc<Mpv>,
     mut recv: UnboundedReceiver<Event>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
 ) -> Result<(), eyre::Report> {
     let mut sr_setup = SongRequestSetup::new()?;
     let song_sender = Arc::new(song_sender);
@@ -74,22 +75,20 @@ pub async fn event_handler(
         match event {
             Event::IrcEvent(irc_event) => match irc_event {
                 IrcEvent::WebSocket(event) => match event {
-                    IrcWs::Ping => {
-                        ws_sender
-                            .send(Message::Text(String::from("PONG :tmi.twitch.tv")))
-                            .await?;
+                    IrcWs::Ping(ping) => {
+                        ws_sender.send(Message::Pong(ping)).await?;
                     }
                     IrcWs::Reconnect => {
                         println!("Reconnecting IRC");
 
                         let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
-                        let (sender, _recv) = socket.split();
+                        let (sender, receiver) = socket.split();
 
                         ws_sender = sender;
 
-                        // TODO: do this later lazy ass bitch
-                        // ws_receiver = recv;
+                        let mut locked_ws_receiver = ws_receiver.lock().await;
+                        *locked_ws_receiver = receiver;
 
                         irc_login(&mut ws_sender, &sr_setup.api_info).await?;
                     }
@@ -98,9 +97,14 @@ pub async fn event_handler(
                     }
                 },
                 IrcEvent::Chat(event) => match event {
-                    IrcChat::Ping => {
+                    IrcChat::ChatPing => {
                         ws_sender
                             .send(Message::Text(to_irc_message("!pong")))
+                            .await?;
+                    }
+                    IrcChat::Ping => {
+                        ws_sender
+                            .send(Message::Text(String::from("PONG :tmi.twitch.tv")))
                             .await?;
                     }
                     IrcChat::Sr((sender, song)) => {

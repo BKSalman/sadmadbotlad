@@ -1,10 +1,9 @@
-use sadmadbotlad::flatten;
 use eyre::WrapErr;
+use tokio_retry::{strategy::ExponentialBackoff, Retry};
 
-use sadmadbotlad::{
-    irc::irc_connect,
-    eventsub::eventsub,
-};
+use sadmadbotlad::flatten;
+
+use sadmadbotlad::{eventsub::eventsub, irc::irc_connect};
 
 mod util;
 use util::install_eyre;
@@ -12,24 +11,20 @@ use util::install_eyre;
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
-    
-    run().await.with_context(|| "main:: running application")?;
-    
+
+    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || run())
+        .await
+        .with_context(|| "main:: running application")?;
+
     Ok(())
 }
 
 async fn run() -> Result<(), eyre::Report> {
-
-    // let live = LiveStatus::Offline {
-    //     url: String::from("https://twitch.tv/sadmadladsalman"),
-    // };
-
-    // let (sender, recv) = watch::channel(live);
-
     tokio::try_join!(
         flatten(tokio::spawn(eventsub())),
         flatten(tokio::spawn(irc_connect())),
-    ).wrap_err_with(|| "Run")?;
+    )
+    .wrap_err_with(|| "Run")?;
 
     Ok(())
 }
