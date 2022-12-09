@@ -173,8 +173,7 @@ pub fn play_song(
             }) => {
                 if let Some(song) = song_receiver.blocking_recv() {
                     println!("{song:#?}");
-                    mpv
-                        .playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
+                    mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
                         .expect("play song");
 
                     event_sender.send(crate::event_handler::Event::MpvEvent(

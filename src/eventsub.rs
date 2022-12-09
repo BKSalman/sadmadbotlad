@@ -1,15 +1,15 @@
-use eyre::WrapErr;
-use futures_util::{
-    stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt,
-};
-use reqwest::Url;
 use crate::flatten;
 use crate::{
     discord::online_notification,
     twitch::{offline_event, online_event, TwitchApiResponse, WsEventSub},
     ApiInfo,
 };
+use eyre::WrapErr;
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
+use reqwest::Url;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 

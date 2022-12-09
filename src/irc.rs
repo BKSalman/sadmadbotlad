@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     event_handler::{self, event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
-    song_requests::{SongRequest, setup_mpv, play_song},
+    song_requests::{play_song, setup_mpv, SongRequest},
     ApiInfo,
 };
 use eyre::WrapErr;
@@ -32,9 +32,8 @@ pub async fn irc_connect() -> eyre::Result<()> {
     let mpv = Arc::new(setup_mpv());
 
     let mpv_c = mpv.clone();
-    
-    let join_handle =
-        std::thread::spawn(move || play_song(mpv_c, song_receiver, e_sender_c));
+
+    let join_handle = std::thread::spawn(move || play_song(mpv_c, song_receiver, e_sender_c));
 
     tokio::try_join!(
         flatten(tokio::spawn(read(e_sender, ws_receiver.clone()))),
@@ -77,7 +76,7 @@ async fn read(
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
 ) -> eyre::Result<()> {
     let mut locked_ws_receiver = ws_receiver.lock().await;
-    
+
     while let Some(msg) = locked_ws_receiver.next().await {
         match msg {
             Ok(Message::Ping(ping)) => {
@@ -105,13 +104,17 @@ async fn read(
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Queue)))?;
                 } else if parsed_msg.starts_with("!currentsong") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSong)))?;
+                } else if parsed_msg.starts_with("!currentspotify") {
+                    event_sender
+                        .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSongSpotify)))?;
                 } else if parsed_msg.starts_with("!volume ") {
                     let Ok(value) = parsed_msg.split(' ').collect::<Vec<&str>>()[1].parse::<i64>() else {
                         let e = String::from("Provide number");
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid(e))))?;
                         continue;
                     };
-                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SetVolume(value))))?;
+                    event_sender
+                        .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SetVolume(value))))?;
                 } else if parsed_msg.starts_with("!volume") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?;
                 } else if parsed_msg.starts_with("!pause") {
@@ -120,7 +123,7 @@ async fn read(
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?;
                 } else if parsed_msg.starts_with("!قوانين") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Rules)))?;
-                }else if !parsed_msg.starts_with("!title ") && parsed_msg.starts_with("!title") {
+                } else if !parsed_msg.starts_with("!title ") && parsed_msg.starts_with("!title") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetTitle)))?;
                 }
             }
@@ -128,7 +131,6 @@ async fn read(
                 if msg.contains("PING") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
                 } else if msg.contains("RECONNECT") {
-                    
                 }
             }
             Ok(_) => {}
@@ -138,8 +140,11 @@ async fn read(
                 // this looks dangerous... I don't trust it
                 // irc_connect().await?;
 
-                return Err(eyre::ErrReport::new(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Unautherized")));
-            },
+                return Err(eyre::ErrReport::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Unautherized",
+                )));
+            }
         }
     }
 

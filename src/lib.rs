@@ -10,6 +10,7 @@ pub mod eventsub;
 pub mod irc;
 pub mod song_requests;
 pub mod twitch;
+pub mod ws_server;
 pub mod youtube;
 
 #[derive(Deserialize)]

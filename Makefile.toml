@@ -1,0 +1,6 @@
+[tasks.run_all]
+script = [
+  "cargo run --release",
+  "cd frontend",
+  "cargo run --release",
+]

@@ -1,6 +1,7 @@
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{sink::SinkExt, StreamExt};
 use libmpv::Mpv;
+use std::process::Command;
 use std::sync::Arc;
 use tokio::{
     net::TcpStream,
@@ -8,7 +9,7 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::twitch::{get_title, set_title, refresh_access_token};
+use crate::twitch::{get_title, refresh_access_token, set_title};
 use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::{SongRequest, SongRequestSetup},
@@ -44,6 +45,7 @@ pub enum IrcChat {
     SkipSr,
     Queue,
     CurrentSong,
+    CurrentSongSpotify,
     SetVolume(i64),
     GetVolume,
     Pause,
@@ -121,9 +123,7 @@ pub async fn event_handler(
                             message = to_irc_message("No song playing");
                         }
 
-                        ws_sender
-                            .send(Message::Text(message))
-                            .await?;
+                        ws_sender.send(Message::Text(message)).await?;
 
                         // let e_str = e.to_string();
 
@@ -148,7 +148,9 @@ pub async fn event_handler(
                         }
                         if message.chars().count() <= 0 {
                             ws_sender
-                                .send(Message::Text(to_irc_message("No songs in queue, try !currentsong")))
+                                .send(Message::Text(to_irc_message(
+                                    "No songs in queue, try !currentsong",
+                                )))
                                 .await?;
                             continue;
                         }
@@ -169,6 +171,17 @@ pub async fn event_handler(
                                 .send(Message::Text(to_irc_message("No song playing")))
                                 .await?;
                         }
+                    }
+                    IrcChat::CurrentSongSpotify => {
+                        let cmd = Command::new("./current_spotify_song.sh").output()?;
+                        let output = String::from_utf8(cmd.stdout)?;
+
+                        ws_sender
+                            .send(Message::Text(to_irc_message(format!(
+                                "Current Spotify song: {}",
+                                output
+                            ))))
+                            .await?;
                     }
                     IrcChat::SetVolume(volume) => {
                         if let Err(e) = mpv.set_property("volume", volume) {

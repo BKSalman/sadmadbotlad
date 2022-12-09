@@ -1,5 +1,5 @@
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use crate::ApiInfo;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use serde_json::Value;
 
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
@@ -36,11 +36,12 @@ pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, r
         .await?
         .json::<Value>()
         .await?;
-    
+
     let video_title = res["items"][0]["snippet"]["title"]
         .as_str()
-        .expect("yt video title").to_owned();
-    
+        .expect("yt video title")
+        .to_owned();
+
     Ok(video_title)
 }
 
