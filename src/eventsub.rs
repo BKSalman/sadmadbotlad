@@ -1,9 +1,12 @@
-use crate::flatten;
 use crate::{
     discord::online_notification,
-    twitch::{offline_event, online_event, TwitchApiResponse, WsEventSub},
-    ApiInfo,
+    twitch::{
+        follow_event_body, offline_event_body, online_event_body, TwitchApiResponse, WsEventSub,
+        WsSession,
+    },
+    ApiInfo
 };
+use crate::{flatten, FrontEndEvent};
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -13,7 +16,9 @@ use reqwest::Url;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-pub async fn eventsub() -> Result<(), eyre::Report> {
+pub async fn eventsub(
+    front_end_event_sender: tokio::sync::mpsc::Sender<FrontEndEvent>,
+) -> Result<(), eyre::Report> {
     println!("Starting eventsub");
     let api_info = ApiInfo::new()?;
 
@@ -25,7 +30,12 @@ pub async fn eventsub() -> Result<(), eyre::Report> {
 
     if let Err(e) = tokio::try_join!(
         // flatten(tokio::spawn(write(sender, watch))),
-        flatten(tokio::spawn(read(api_info, receiver, sender)))
+        flatten(tokio::spawn(read(
+            front_end_event_sender,
+            api_info,
+            receiver,
+            sender
+        )))
     )
     .wrap_err_with(|| "in stream join")
     {
@@ -36,6 +46,7 @@ pub async fn eventsub() -> Result<(), eyre::Report> {
 }
 
 async fn read(
+    front_end_event_sender: tokio::sync::mpsc::Sender<FrontEndEvent>,
     api_info: ApiInfo,
     mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
@@ -60,7 +71,6 @@ async fn read(
                     }
                 };
 
-                let http_client = reqwest::Client::new();
                 if let Some(session) = json_msg.payload.session {
                     if session.status == "reconnecting" {
                         println!("Reconnecting eventsub");
@@ -76,33 +86,19 @@ async fn read(
                         sender = send;
 
                         recv = receiver;
-                    } else {
-                        if let Ok(_) = http_client
-                            .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-                            .bearer_auth(api_info.twitch_access_token.clone())
-                            .header("Client-Id", api_info.client_id.clone())
-                            .json(&online_event(session.id.clone()))
-                            .send()
-                            .await?
-                            .text()
-                            .await
-                        {
-                            println!("online sub");
-                        }
 
-                        if let Ok(_) = http_client
-                            .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-                            .bearer_auth(api_info.twitch_access_token.clone())
-                            .header("Client-Id", api_info.client_id.clone())
-                            .json(&offline_event(session.id))
-                            .send()
-                            .await?
-                            .text()
-                            .await
-                        {
-                            println!("offline sub");
-                        }
-                        // let response = serde_json::from_str(&response);
+                        continue;
+                    }
+
+                    if let Ok(_) = offline_eventsub(&api_info, &session).await {
+                        println!("offline sub");
+                    }
+
+                    if let Ok(_) = online_eventsub(&api_info, &session).await {
+                        println!("online sub");
+                    }
+                    if let Ok(_) = follow_eventsub(&api_info, &session).await {
+                        println!("follow sub");
                     }
                 } else if let Some(_) = &json_msg.payload.session {
                 } else if let Some(subscription) = &json_msg.payload.subscription {
@@ -110,26 +106,19 @@ async fn read(
                     // println!("{:#?}", json_msg);
 
                     if subscription.r#type == "stream.online" {
-                        match http_client
-                            .get("https://api.twitch.tv/helix/streams?user_id=143306668")
-                            .bearer_auth(api_info.twitch_access_token.clone())
-                            .header("Client-Id", api_info.client_id.clone())
-                            .send()
-                            .await?
-                            .json::<TwitchApiResponse>()
-                            .await
-                        {
-                            Ok(res) => {
-                                online_notification(
-                                    &api_info,
-                                    &res.data[0].title,
-                                    &res.data[0].game_name,
-                                )
-                                .await?;
-                            }
-
-                            Err(e) => println!("{e}\n"),
-                        }
+                        online_event(&api_info).await?;
+                    } else if subscription.r#type == "channel.follow" {
+                        front_end_event_sender
+                            .send(FrontEndEvent::Follow {
+                                follower: json_msg
+                                    .payload
+                                    .event
+                                    .expect("follow event")
+                                    .user_name
+                                    .expect("follow username"),
+                            })
+                            .await?;
+                        println!("sent to frontend handler");
                     }
                     // else if subscription.r#type == "stream.offline" {
                     //     match http_client
@@ -156,28 +145,66 @@ async fn read(
     Ok(())
 }
 
-// Sends live status to clients.
-// #[allow(unused)]
-// async fn write(
-//     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-//     mut watch: watch::Receiver<LiveStatus>,
-// ) -> Result<(), eyre::Report> {
-//     while watch.changed().await.is_ok() {
-//         let val = watch.borrow().clone();
+async fn online_event(api_info: &ApiInfo) -> Result<(), color_eyre::Report> {
+    let http_client = reqwest::Client::new();
 
-//         let Ok(msg) = val.to_message() else {
-//             continue;
-//         };
+    match http_client
+        .get("https://api.twitch.tv/helix/streams?user_id=143306668")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .send()
+        .await?
+        .json::<TwitchApiResponse>()
+        .await
+    {
+        Ok(res) => {
+            online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
+        }
 
-//         if let Err(error) = sender.send(msg).await {
-//             if let Some(e) = error.source() {
-//                 let Some(tokio_tungstenite::tungstenite::error::Error::ConnectionClosed) =
-//                     e.downcast_ref()
-//                 else {
-//                     return Err(error.into());
-//                 };
-//             }
-//         }
-//     }
-//     Ok(())
-// }
+        Err(e) => println!("{e}\n"),
+    }
+
+    Ok(())
+}
+
+async fn offline_eventsub(api_info: &ApiInfo, session: &WsSession) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&offline_event_body(session.id.clone()))
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+async fn online_eventsub(api_info: &ApiInfo, session: &WsSession) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&online_event_body(session.id.clone()))
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+async fn follow_eventsub(api_info: &ApiInfo, session: &WsSession) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&follow_event_body(session.id.clone()))
+        .send()
+        .await?;
+
+    Ok(())
+}

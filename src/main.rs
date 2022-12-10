@@ -1,4 +1,5 @@
 use eyre::WrapErr;
+use sadmadbotlad::FrontEndEvent;
 use tokio_retry::{strategy::ExponentialBackoff, Retry};
 
 use sadmadbotlad::{flatten, ws_server::ws_server};
@@ -12,9 +13,7 @@ use util::install_eyre;
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
 
-    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
-        run()
-    })
+    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || run())
         .await
         .with_context(|| "main:: running application")?;
 
@@ -22,10 +21,12 @@ async fn main() -> Result<(), eyre::Report> {
 }
 
 async fn run() -> Result<(), eyre::Report> {
+    let (sender, receiver) = tokio::sync::mpsc::channel::<FrontEndEvent>(100);
+
     tokio::try_join!(
-        flatten(tokio::spawn(eventsub())),
+        flatten(tokio::spawn(eventsub(sender.clone()))),
         flatten(tokio::spawn(irc_connect())),
-        flatten(tokio::spawn(ws_server())),
+        flatten(tokio::spawn(ws_server(receiver))),
     )
     .wrap_err_with(|| "Run")?;
 

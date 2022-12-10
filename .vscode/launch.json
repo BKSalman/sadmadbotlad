@@ -1,0 +1,78 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'sadmadbotlad'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=sadmadbotlad"
+                ],
+                "filter": {
+                    "name": "sadmadbotlad",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            // "envFile":"/media/big/coding/sadmadbotlad/.env",
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'sadmadbotlad'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=sadmadbotlad",
+                    "--package=sadmadbotlad"
+                ],
+                "filter": {
+                    "name": "sadmadbotlad",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            // "envFile":"/media/big/coding/sadmadbotlad/.env",
+            "env": {
+                "GOOGLE_API_KEY": "AIzaSyCu45QV7LCRHZWsh28N47zzIlahIveIYxo",
+                "USER": "BotKSalman",
+                "CLIENT_ID": "dvhtawxumf8hdortg83w8oo2msvkdy",
+                "TWITCH_ACCESS_TOKEN": "875kpjqscgx9u8mumzpws6cu7yql46",
+                "TWITCH_REFRESH_TOKEN": "ftej5qrhz29s48wfwcplyntswzs1k7lslq1s61qg2rz6ky2s7c",
+                "DISCORD_TOKEN": "OTI5NTQ4ODk1ODc5NTgxNzA2.GbU-Iw.MJV-Q5yki1zTs6iLNp7z9E4akZAYSk3VM8Qgk4",
+                "CLIENT_SECRET": "pwe6tdjzrrv9d0rxhwo3o31r0tk2w8",
+                "BROADCASTER_LOGIN": "sadmadladsalman",
+                "WEBSITE": "https://localhost:3000"
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'sadmadbotlad'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=sadmadbotlad",
+                    "--package=sadmadbotlad"
+                ],
+                "filter": {
+                    "name": "sadmadbotlad",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            // "envFile":"/media/big/coding/sadmadbotlad/.env",
+        }
+    ]
+}

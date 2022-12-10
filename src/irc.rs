@@ -14,7 +14,8 @@ use futures_util::{
 use tokio::{net::TcpStream, sync::mpsc::UnboundedSender};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-pub async fn irc_connect() -> eyre::Result<()> {
+pub async fn irc_connect(
+) -> eyre::Result<()> {
     println!("Starting IRC");
 
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
@@ -52,7 +53,7 @@ pub async fn irc_connect() -> eyre::Result<()> {
     Ok(())
 }
 
-pub async fn irc_login<'a>(
+pub async fn irc_login(
     ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     api_info: &ApiInfo,
 ) -> Result<(), eyre::Report> {

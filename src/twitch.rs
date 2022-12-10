@@ -66,8 +66,8 @@ pub struct WsSession {
 #[derive(Debug, Deserialize)]
 pub struct WsEvent {
     user_id: Option<String>,
-    user_login: Option<String>,
-    user_name: Option<String>,
+    pub user_login: Option<String>,
+    pub user_name: Option<String>,
     broadcaster_user_id: String,
     broadcaster_user_login: String,
     broadcaster_user_name: String,
@@ -145,7 +145,7 @@ pub struct TwitchGetChannelInfo {
     broadcaster_language: String,
 }
 
-pub fn online_event(session_id: String) -> Value {
+pub fn online_event_body(session_id: String) -> Value {
     json!({
         "type": "stream.online",
         "version": "1",
@@ -159,7 +159,21 @@ pub fn online_event(session_id: String) -> Value {
     })
 }
 
-pub fn offline_event(session_id: String) -> Value {
+pub fn follow_event_body(session_id: String) -> Value {
+    json!({
+        "type": "channel.follow",
+        "version": "1",
+        "condition": {
+            "broadcaster_user_id": "143306668" //110644052
+        },
+        "transport": {
+            "method": "websocket",
+            "session_id": session_id
+        }
+    })
+}
+
+pub fn offline_event_body(session_id: String) -> Value {
     json!({
         "type": "stream.offline",
         "version": "1",

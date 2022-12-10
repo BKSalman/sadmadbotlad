@@ -13,6 +13,14 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
+#[derive(Debug)]
+pub enum FrontEndEvent {
+    Follow {
+        follower: String,
+    },
+    Close,
+}
+
 #[derive(Deserialize)]
 pub struct ApiInfo {
     pub google_api_key: String,
