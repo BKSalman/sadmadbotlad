@@ -13,12 +13,11 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FrontEndEvent {
     Follow {
         follower: String,
     },
-    Close,
 }
 
 #[derive(Deserialize)]

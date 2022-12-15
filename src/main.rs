@@ -21,12 +21,12 @@ async fn main() -> Result<(), eyre::Report> {
 }
 
 async fn run() -> Result<(), eyre::Report> {
-    let (sender, receiver) = tokio::sync::mpsc::channel::<FrontEndEvent>(100);
-
+    let (sender, _) = tokio::sync::broadcast::channel::<FrontEndEvent>(100);
+    
     tokio::try_join!(
         flatten(tokio::spawn(eventsub(sender.clone()))),
         flatten(tokio::spawn(irc_connect())),
-        flatten(tokio::spawn(ws_server(receiver))),
+        flatten(tokio::spawn(ws_server(sender.clone()))),
     )
     .wrap_err_with(|| "Run")?;
 

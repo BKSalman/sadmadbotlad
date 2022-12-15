@@ -10,6 +10,7 @@ use crate::{youtube, ApiInfo};
 // // use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
 // use crate::youtube;
+use html_escape::decode_html_entities;
 
 pub struct SongRequestSetup {
     pub queue: Queue,
@@ -56,7 +57,7 @@ impl SongRequestSetup {
         // request is a valid yt URL
 
         let Ok(video_id) = youtube::video_id_from_url(irc_msg) else {
-                eprintln!("not a valid url");
+                println!("not a valid url");
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid URL"));
             };
         let video_title = youtube::video_title(irc_msg, &self.api_info)
@@ -68,6 +69,8 @@ impl SongRequestSetup {
                 )
             })?;
 
+        let video_title = decode_html_entities(&video_title).to_string();
+        
         let song = SongRequest {
             title: video_title.clone(),
             user: irc_sender.into(),

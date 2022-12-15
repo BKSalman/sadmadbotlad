@@ -51,6 +51,8 @@ pub async fn video_info(
 ) -> Result<VideoInfo, reqwest::Error> {
     let http_client = reqwest::Client::new();
 
+    println!("{video_query}");
+
     let res = http_client
         .get(format!(
             "https://youtube.googleapis.com/youtube/v3/\

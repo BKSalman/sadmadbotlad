@@ -1,3 +1,5 @@
+.vscode
+.vscode/
 /target
 .env
 refresh_token.txt

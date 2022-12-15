@@ -17,7 +17,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub async fn eventsub(
-    front_end_event_sender: tokio::sync::mpsc::Sender<FrontEndEvent>,
+    front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
     println!("Starting eventsub");
     let api_info = ApiInfo::new()?;
@@ -46,7 +46,7 @@ pub async fn eventsub(
 }
 
 async fn read(
-    front_end_event_sender: tokio::sync::mpsc::Sender<FrontEndEvent>,
+    front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
     api_info: ApiInfo,
     mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
@@ -54,7 +54,7 @@ async fn read(
     while let Some(msg) = recv.next().await {
         match msg {
             Ok(Message::Ping(ping)) => {
-                // println!("ping");
+                // println!("eventsub:: ping");
                 sender.send(Message::Pong(ping)).await?;
             }
             Ok(msg) => {
@@ -63,7 +63,7 @@ async fn read(
                     println!("{msg}");
                     return Err(eyre::Report::msg("connection unsed... disconnecting"));
                 }
-
+                
                 let json_msg = match serde_json::from_str::<WsEventSub>(&msg) {
                     Ok(json_msg) => json_msg,
                     Err(e) => {
@@ -116,8 +116,7 @@ async fn read(
                                     .expect("follow event")
                                     .user_name
                                     .expect("follow username"),
-                            })
-                            .await?;
+                            })?;
                         println!("sent to frontend handler");
                     }
                     // else if subscription.r#type == "stream.offline" {
