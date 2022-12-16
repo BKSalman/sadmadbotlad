@@ -25,7 +25,7 @@ async fn run() -> Result<(), eyre::Report> {
     
     tokio::try_join!(
         flatten(tokio::spawn(eventsub(sender.clone()))),
-        flatten(tokio::spawn(irc_connect())),
+        flatten(tokio::spawn(irc_connect(sender.clone()))),
         flatten(tokio::spawn(ws_server(sender.clone()))),
     )
     .wrap_err_with(|| "Run")?;

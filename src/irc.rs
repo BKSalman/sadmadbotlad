@@ -4,7 +4,7 @@ use crate::{
     event_handler::{self, event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
-    ApiInfo,
+    ApiInfo, FrontEndEvent,
 };
 use eyre::WrapErr;
 use futures_util::{
@@ -15,6 +15,7 @@ use tokio::{net::TcpStream, sync::mpsc::UnboundedSender};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub async fn irc_connect(
+    front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
 
@@ -44,6 +45,7 @@ pub async fn irc_connect(
             e_receiver,
             ws_sender,
             ws_receiver,
+            front_end_events_sender,
         ))),
     )
     .wrap_err_with(|| "songs")?;
@@ -126,6 +128,8 @@ async fn read(
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Rules)))?;
                 } else if !parsed_msg.starts_with("!title ") && parsed_msg.starts_with("!title") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetTitle)))?;
+                } else if parsed_msg.starts_with("!test") {
+                    event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Test)))?;
                 }
             }
             Ok(Message::Text(msg)) => {

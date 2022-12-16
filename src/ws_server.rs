@@ -98,26 +98,42 @@ async fn handle_connection(
 
 async fn handle_front_end_events(
     mut front_end_event_receiver: tokio::sync::broadcast::Receiver<FrontEndEvent>,
-    ws_senderc: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>>,
-    peer: SocketAddr,
+    ws_sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>>,
+    _peer: SocketAddr,
 ) {
     while let Ok(msg) = front_end_event_receiver.recv().await {
         println!("Sending Ws:: {msg:?}");
         match msg {
             FrontEndEvent::Follow { follower } => {
-                println!("lmao {peer}");
-                match ws_senderc
+                match ws_sender
                     .lock()
                     .await
                     .send(Message::Text(format!(
-                        "follow_event::{}::port:{}",
-                        follower, peer
+                        "follow::{}",
+                        follower
                     )))
                     .await
                 {
                     Ok(_) => {}
                     Err(e) => {
                         println!("{e}");
+                        break;
+                    }
+                }
+            }
+            FrontEndEvent::Raid { from } => {
+                match ws_sender
+                    .lock()
+                    .await
+                    .send(Message::Text(format!(
+                        "raid::{}",
+                        from
+                    )))
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("WebSocket server:: {e}");
                         break;
                     }
                 }

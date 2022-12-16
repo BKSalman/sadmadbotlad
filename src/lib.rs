@@ -18,6 +18,9 @@ pub enum FrontEndEvent {
     Follow {
         follower: String,
     },
+    Raid {
+        from: String,
+    }
 }
 
 #[derive(Deserialize)]

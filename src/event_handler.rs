@@ -10,6 +10,7 @@ use tokio::{
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::twitch::{get_title, refresh_access_token, set_title};
+use crate::FrontEndEvent;
 use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::{SongRequest, SongRequestSetup},
@@ -53,6 +54,7 @@ pub enum IrcChat {
     Rules,
     GetTitle,
     SetTitle(String),
+    Test,
 }
 
 #[derive(Debug)]
@@ -67,6 +69,7 @@ pub async fn event_handler(
     mut recv: UnboundedReceiver<Event>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
+    front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
     let mut sr_setup = SongRequestSetup::new()?;
     let song_sender = Arc::new(song_sender);
@@ -250,6 +253,11 @@ pub async fn event_handler(
                                 title
                             ))))
                             .await?;
+                    }
+                    IrcChat::Test => {
+                        front_end_events_sender.send(FrontEndEvent::Raid {
+                            from: String::from("lmao"),
+                        })?;
                     }
                 },
             },

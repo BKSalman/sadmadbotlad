@@ -145,48 +145,6 @@ pub struct TwitchGetChannelInfo {
     broadcaster_language: String,
 }
 
-pub fn online_event_body(session_id: String) -> Value {
-    json!({
-        "type": "stream.online",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": "143306668" //110644052
-        },
-        "transport": {
-            "method": "websocket",
-            "session_id": session_id
-        }
-    })
-}
-
-pub fn follow_event_body(session_id: String) -> Value {
-    json!({
-        "type": "channel.follow",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": "143306668" //110644052
-        },
-        "transport": {
-            "method": "websocket",
-            "session_id": session_id
-        }
-    })
-}
-
-pub fn offline_event_body(session_id: String) -> Value {
-    json!({
-        "type": "stream.offline",
-        "version": "1",
-        "condition": {
-            "broadcaster_user_id": "143306668"
-        },
-        "transport": {
-            "method": "websocket",
-            "session_id": session_id
-        }
-    })
-}
-
 pub async fn set_title(new_title: &str, api_info: &mut ApiInfo) -> Result<(), eyre::Report> {
     // request twitch patch change title
 

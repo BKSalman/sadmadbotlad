@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
+
+* {
+  font-family: Tajawal;
+  font-weight: bold;
+  margin: 0;
+  padding: 0;
+}
+
+.flex {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  align-items: center;
+}
+
+.vid {
+  flex: 1 1 0%;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+video {
+  max-height: 100%;
+  max-width: 100%;
+}
+
+.text {
+  font-size:70px;
+  color: white;
+  text-stroke: 4px black;
+}
