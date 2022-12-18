@@ -302,7 +302,14 @@ pub async fn event_handler(
                                     println!("frontend event failed:: {e:?}")
                                 }
                             }
-                            _ => {}
+                            _ => {
+                                println!("no args provided");
+                                if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
+                                    from: String::from("lmao"),
+                                }) {
+                                    println!("frontend event failed:: {e:?}")
+                                }
+                            }
                         }
                     }
                 },

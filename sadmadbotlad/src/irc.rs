@@ -193,7 +193,7 @@ async fn read(
                         }
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Test(
-                            args.to_string()
+                            args.trim().to_string()
                         ))))?;
                     }
                     _ => {}
