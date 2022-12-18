@@ -1,4 +1,7 @@
-/dist
+dist/
+.vscode
+.vscode/
 /target
 .env
 refresh_token.txt
+frontend/assets/
