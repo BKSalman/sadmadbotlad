@@ -100,7 +100,7 @@ async fn read(
 
                 let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
                 let cmd = &parsed_msg[0..space_index];
-                let args = &parsed_msg[space_index..];
+                let args = &parsed_msg[space_index..].trim();
 
                 match cmd {
                     "!ping" => {
@@ -193,7 +193,7 @@ async fn read(
                         }
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Test(
-                            args.trim().to_string()
+                            args.to_string()
                         ))))?;
                     }
                     _ => {}
