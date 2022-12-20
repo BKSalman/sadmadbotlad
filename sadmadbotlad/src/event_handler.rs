@@ -17,6 +17,7 @@ use crate::{
 };
 
 const RULES: &str = include_str!("../rules.txt");
+const WARRANTY: &str = include_str!("../warranty.txt");
 
 #[derive(Debug)]
 pub enum Event {
@@ -55,6 +56,7 @@ pub enum IrcChat {
     GetTitle,
     SetTitle(String),
     ModsOnly,
+    Warranty,
     Test(String),
 }
 
@@ -161,9 +163,11 @@ pub async fn event_handler(
                     }
                     IrcChat::Queue => {
                         ws_sender
-                            .send(Message::Text(to_irc_message("Check the queue at: https://f5rfm.bksalman.com")))
+                            .send(Message::Text(to_irc_message(
+                                "Check the queue at: https://f5rfm.bksalman.com",
+                            )))
                             .await?;
-                        
+
                         // let mut message = String::new();
                         // for (s, i) in sr_setup.read().await.queue.queue.iter().zip(1..=20) {
                         //     if let Some(song) = s {
@@ -288,33 +292,34 @@ pub async fn event_handler(
                             ))))
                             .await?;
                     }
-                    IrcChat::Test(test) => {
-                        match test.to_lowercase().as_str() {
-                            "raid" => {
-                                if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
-                                    from: String::from("lmao"),
-                                }) {
-                                    println!("frontend event failed:: {e:?}")
-                                }
-                            }
-                            "follow" => {
-                                if let Err(e) =
-                                    front_end_events_sender.send(FrontEndEvent::Follow {
-                                        follower: String::from("lmao"),
-                                    })
-                                {
-                                    println!("frontend event failed:: {e:?}")
-                                }
-                            }
-                            _ => {
-                                println!("no args provided");
-                                if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
-                                    from: String::from("lmao"),
-                                }) {
-                                    println!("frontend event failed:: {e:?}")
-                                }
+                    IrcChat::Test(test) => match test.to_lowercase().as_str() {
+                        "raid" => {
+                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
+                                from: String::from("lmao"),
+                            }) {
+                                println!("frontend event failed:: {e:?}")
                             }
                         }
+                        "follow" => {
+                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Follow {
+                                follower: String::from("lmao"),
+                            }) {
+                                println!("frontend event failed:: {e:?}")
+                            }
+                        }
+                        _ => {
+                            println!("no args provided");
+                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
+                                from: String::from("lmao"),
+                            }) {
+                                println!("frontend event failed:: {e:?}")
+                            }
+                        }
+                    },
+                    IrcChat::Warranty => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message(WARRANTY)))
+                            .await?;
                     }
                 },
             },

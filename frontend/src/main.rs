@@ -13,7 +13,7 @@ use yew_router::prelude::*;
 enum Route {
     #[at("/alerts")]
     Alerts,
-    #[at("/songs")]
+    #[at("/")]
     Songs,
     #[not_found]
     #[at("/404")]
@@ -33,7 +33,7 @@ impl Component for App {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        let ws = WebSocket::open("ws://localhost:3000").expect("Ws");
+        let ws = WebSocket::open("wss://ws.bksalman.com").expect("Ws");
 
         let (mut ws_sender, ws_receiver) = ws.split();
 

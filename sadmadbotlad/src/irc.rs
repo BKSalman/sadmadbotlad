@@ -99,10 +99,10 @@ async fn read(
                 }
 
                 let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
-                let cmd = &parsed_msg[0..space_index];
+                let cmd = &parsed_msg[0..space_index].to_lowercase();
                 let args = &parsed_msg[space_index..].trim();
 
-                match cmd {
+                match cmd.as_str() {
                     "!ping" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ChatPing)))?
                     }
@@ -123,7 +123,7 @@ async fn read(
                     "!skip" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))?
                     }
-                    "!queue" => {
+                    "!queue" | "!q" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Queue)))?
                     }
                     "!currentsong" => {
@@ -184,6 +184,11 @@ async fn read(
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SetTitle(
                             args.to_string(),
                         ))))?;
+                    }
+                    "!warranty" => {
+                        event_sender
+                            .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Warranty)))?;
+                        continue;
                     }
                     "!test" => {
                         if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
