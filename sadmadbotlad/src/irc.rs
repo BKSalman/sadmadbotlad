@@ -14,7 +14,7 @@ use futures_util::{
 use tokio::{net::TcpStream, sync::mpsc::UnboundedSender};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-pub async fn irc_connect(
+pub async fn irc_connect (
     front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
@@ -121,6 +121,12 @@ async fn read(
                         )))))?;
                     }
                     "!skip" => {
+                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                            event_sender
+                                .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
+                            continue;
+                        }
+
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))?
                     }
                     "!queue" | "!q" => {
@@ -139,6 +145,13 @@ async fn read(
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?;
                             continue;
                         }
+
+                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                            event_sender
+                                .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
+                            continue;
+                        }
+
                         let Ok(value) = args.parse::<i64>() else {
                             let e = String::from("Provide number");
                             event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Invalid(e))))?;
@@ -175,6 +188,7 @@ async fn read(
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetTitle)))?;
                             continue;
                         }
+
                         if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;

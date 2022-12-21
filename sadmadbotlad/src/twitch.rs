@@ -199,9 +199,14 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
             "refresh_token": api_info.twitch_refresh_token,
         }))
         .send()
-        .await?
-        .json::<Value>()
         .await?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        panic!("Unauthorized:: could not refresh access token")
+    }
+
+    let res = res.json::<Value>()
+    .await?;
 
     let new_refresh_token = res["refresh_token"].as_str().unwrap();
     let new_access_token = res["access_token"].as_str().unwrap();

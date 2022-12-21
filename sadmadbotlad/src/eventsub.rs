@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-pub async fn eventsub(
+pub async fn eventsub (
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
     println!("Starting eventsub");
@@ -22,7 +22,7 @@ pub async fn eventsub(
 
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
-            .await?;
+            .await.wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
 
     let (sender, receiver) = socket.split();
 
@@ -35,15 +35,15 @@ pub async fn eventsub(
             sender
         )))
     )
-    .wrap_err_with(|| "in stream join")
+    .wrap_err_with(|| "failed to read eventsub websocket")
     {
-        eprintln!("socket failed {e}")
+        eprintln!("eventsub websocket failed:: {e}")
     }
 
     Ok(())
 }
 
-async fn read(
+async fn read (
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
     api_info: ApiInfo,
     mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,

@@ -1,53 +1,83 @@
+use std::{cell::RefCell, rc::Rc};
+
+use futures::{stream::SplitStream, StreamExt};
+use gloo::console;
+use gloo_net::websocket::{futures::WebSocket, Message};
 use yew::prelude::*;
 
 pub enum Msg {
+    Follow(String),
+    Raid(String),
     Clear(()),
+    Nothing,
 }
 
 pub struct Alerts {
-}
-
-#[derive(Properties, PartialEq)]
-pub struct Props {
-    #[prop_or_default]
-    pub alert: Option<String>,
-    #[prop_or_default]
-    pub alert_msg: Option<String>,
-    pub vid_cb: Callback<super::Msg>
+    alert: Option<String>,
+    alert_msg: Option<String>,
+    ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>,
 }
 
 impl Component for Alerts {
     type Message = Msg;
-    type Properties = Props;
+    type Properties = ();
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self {}
+    fn create(ctx: &Context<Self>) -> Self {
+        let ws = WebSocket::open("wss://ws.bksalman.com").expect("Ws");
+
+        let (_, ws_receiver) = ws.split();
+
+        let ws_receiver = Rc::new(RefCell::new(ws_receiver));
+        ctx.link().send_future(do_stuff(ws_receiver.clone()));
+
+        Self {
+            alert: None,
+            alert_msg: None,
+            ws_receiver: ws_receiver.clone(),
+        }
     }
 
-    fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
+    fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::Clear(()) => {
+            Msg::Follow(user) => {
+                self.alert = Some(String::from("follow"));
+                self.alert_msg = Some(format!("{user} followed 😎!"));
+                console::log!(format!("{user}"));
                 true
+            }
+            Msg::Raid(from) => {
+                self.alert = Some(String::from("raid"));
+                self.alert_msg = Some(format!("{from} raided 🦀!"));
+                console::log!(format!("{from}"));
+                true
+            }
+            Msg::Clear(()) => {
+                ctx.link().send_future(do_stuff(self.ws_receiver.clone()));
+                self.alert = None;
+                self.alert_msg = None;
+                true
+            }
+            Msg::Nothing => {
+                //TODO: make this better bitch
+                false
             }
         }
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let vid_cb = {
-            let original_cb = ctx.props().vid_cb.clone();
-            move |_event: Event| {
-                original_cb.emit(super::Msg::Clear(()))
-            }
+            let ctxc = ctx.link().clone();
+            move |_event: Event| ctxc.send_message(Msg::Clear(()))
         };
 
-        if let Some(alert) = &ctx.props().alert {
+        if let Some(alert) = &self.alert {
             let src = format!("assets/{}.webm", alert);
             html! {
                 <div class="flex">
                     <div class="vid">
                         <video src={src} onended={vid_cb} autoplay=true/>
                     </div>
-                    <p class="text">{ ctx.props().alert_msg.clone() }</p>
+                    <p class="text">{ self.alert_msg.clone() }</p>
                 </div>
             }
         } else {
@@ -58,3 +88,36 @@ impl Component for Alerts {
     }
 }
 
+async fn do_stuff(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
+    if let Some(ws_msg) = ws_receiver.borrow_mut().next().await {
+        match ws_msg {
+            Ok(Message::Text(msg)) => {
+                console::log!("got {}", &msg);
+                let Some((event_type, arg)) = msg.split_once("::") else {
+                    return Msg::Nothing;
+                };
+                match event_type {
+                    "follow" => {
+                        return Msg::Follow(arg.to_string());
+                    }
+                    "raid" => {
+                        return Msg::Raid(arg.to_string());
+                    }
+                    _ => {
+                        return Msg::Nothing;
+                    }
+                }
+            }
+            Ok(msg) => {
+                console::log!(format!("{msg:?}"));
+                return Msg::Nothing;
+            }
+            Err(e) => {
+                console::log!(format!("{e:?}"));
+                return Msg::Nothing;
+            }
+        }
+    }
+
+    Msg::Nothing
+}

@@ -33,7 +33,7 @@ pub enum FrontEndEvent {
     Raid {
         from: String,
     },
-    SongsRequest,
+    QueueRequest,
     SongsResponse(Queue),
 }
 

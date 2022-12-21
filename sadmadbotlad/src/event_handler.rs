@@ -162,6 +162,7 @@ pub async fn event_handler(
                         ws_sender.send(Message::Text(to_irc_message(e))).await?;
                     }
                     IrcChat::Queue => {
+                        println!("{:#?}", sr_setup.read().await.queue);
                         ws_sender
                             .send(Message::Text(to_irc_message(
                                 "Check the queue at: https://f5rfm.bksalman.com",
@@ -364,7 +365,7 @@ async fn front_end_receiver(
         match msg {
             FrontEndEvent::Follow { follower: _ } => {}
             FrontEndEvent::Raid { from: _ } => {}
-            FrontEndEvent::SongsRequest => {
+            FrontEndEvent::QueueRequest => {
                 front_end_events_sender
                     .send(FrontEndEvent::SongsResponse(
                         sr_setup.read().await.queue.clone(),

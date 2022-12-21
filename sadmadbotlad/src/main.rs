@@ -11,7 +11,10 @@ use sadmadbotlad::{eventsub::eventsub, install_eyre, irc::irc_connect};
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
 
-    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || run())
+    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
+        println!("Attempting...");
+        run()
+    })
         .await
         .with_context(|| "main:: running application")?;
 
