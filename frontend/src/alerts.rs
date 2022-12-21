@@ -70,20 +70,20 @@ impl Component for Alerts {
             move |_event: Event| ctxc.send_message(Msg::Clear(()))
         };
 
-        if let Some(alert) = &self.alert {
-            let src = format!("assets/{}.webm", alert);
-            html! {
-                <div class="flex">
-                    <div class="vid">
-                        <video src={src} onended={vid_cb} autoplay=true/>
-                    </div>
-                    <p class="text">{ self.alert_msg.clone() }</p>
-                </div>
-            }
-        } else {
-            html! {
+        let Some(alert) = &self.alert else {
+            return html! {
                     <></>
-            }
+            };
+        };
+
+        let src = format!("assets/{}.webm", alert);
+        html! {
+            <div class="flex">
+                <div class="vid">
+                    <video src={src} onended={vid_cb} autoplay=true/>
+                </div>
+                <p class="text">{ self.alert_msg.clone() }</p>
+            </div>
         }
     }
 }
