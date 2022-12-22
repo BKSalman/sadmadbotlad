@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io::Read};
 
 use eyre::WrapErr;
 use serde::Deserialize;
@@ -13,6 +13,7 @@ pub mod song_requests;
 pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
+pub mod commands;
 
 pub fn install_eyre() -> eyre::Result<()> {
     let (_, eyre_hook) = color_eyre::config::HookBuilder::default().into_hooks();
@@ -50,16 +51,15 @@ pub struct ApiInfo {
 
 impl ApiInfo {
     pub fn new() -> Result<Self, eyre::Report> {
-        match envy::from_env::<ApiInfo>() {
-            Ok(mut api_info) => {
-                let reader = fs::read_to_string("refresh_token.txt")?;
-                let tokens = reader.split('\n').collect::<Vec<&str>>();
+        let Ok(mut config) = fs::File::open("config.toml") else {
+            panic!("no config file");
+        };
 
-                let refresh_token = tokens[0].to_string();
-                let access_token = tokens[1].to_string();
+        let mut config_str = String::new();
+        config.read_to_string(&mut config_str).expect("config str");
 
-                api_info.twitch_refresh_token = refresh_token;
-                api_info.twitch_access_token = access_token;
+        match toml::from_str::<ApiInfo>(&config_str) {
+            Ok(api_info) => {
                 Ok(api_info)
             }
             Err(e) => {

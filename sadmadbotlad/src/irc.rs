@@ -97,7 +97,9 @@ async fn read(
                 if !parsed_msg.starts_with('!') {
                     continue;
                 }
-
+                
+                let tags = msg.split_once(':').expect("no chat tags").0;
+                // ^have a proper structure for it later, and methods to extract is_mod and is_vip and shit
                 let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
                 let cmd = &parsed_msg[0..space_index].to_lowercase();
                 let args = &parsed_msg[space_index..].trim();
@@ -121,7 +123,7 @@ async fn read(
                         )))))?;
                     }
                     "!skip" => {
-                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -139,14 +141,14 @@ async fn read(
                         event_sender
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSongSpotify)))?;
                     }
-                    "!volume" => {
+                    "!volume" | "!v" => {
                         if args.is_empty() {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?;
                             continue;
                         }
 
-                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -158,7 +160,7 @@ async fn read(
                             continue;
                         };
 
-                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -167,12 +169,30 @@ async fn read(
                         event_sender
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SetVolume(value))))?;
                     }
-                    "!pause" => {
-                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?
-                    }
                     "!play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
+                    "!playspotify" | "!playsp" => {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                            event_sender
+                                .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
+                            continue;
+                        }
+
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::PlaySpotify)))?
+                    }
+                    "!stop" => {
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?
+                    }
+                    "!stopspotify" | "!stopsp" => {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                            event_sender
+                                .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
+                            continue;
+                        }
+
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::StopSpotify)))?
+                    }
                     "!قوانين" => {
-                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -189,7 +209,7 @@ async fn read(
                             continue;
                         }
 
-                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -205,7 +225,7 @@ async fn read(
                         continue;
                     }
                     "!test" => {
-                        if !msg.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;

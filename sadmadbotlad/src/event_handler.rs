@@ -50,13 +50,15 @@ pub enum IrcChat {
     CurrentSongSpotify,
     SetVolume(i64),
     GetVolume,
-    Pause,
+    Stop,
     Play,
     Rules,
     GetTitle,
     SetTitle(String),
     ModsOnly,
     Warranty,
+    PlaySpotify,
+    StopSpotify,
     Test(String),
 }
 
@@ -215,6 +217,25 @@ pub async fn event_handler(
                             ))))
                             .await?;
                     }
+                    IrcChat::PlaySpotify => {
+                        if let Ok(_) = Command::new("./play_spotify.sh").spawn() {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(String::from("Started playing spotify"))))
+                                .await?;
+                        } else {
+                            println!("no script");
+                        }
+                    }
+                    IrcChat::StopSpotify => {
+                        if let Err(e) = Command::new("./pause_spotify.sh").spawn() {
+                            println!("{e:?}");
+                            continue;
+                        }
+
+                        ws_sender
+                            .send(Message::Text(to_irc_message(String::from("Stopped playing spotify"))))
+                            .await?;
+                    }
                     IrcChat::SetVolume(volume) => {
                         if let Err(e) = mpv.set_property("volume", volume) {
                             println!("{e}");
@@ -236,7 +257,7 @@ pub async fn event_handler(
                             .send(Message::Text(to_irc_message(format!("Volume: {}", volume))))
                             .await?;
                     }
-                    IrcChat::Pause => {
+                    IrcChat::Stop => {
                         if let Err(e) = mpv.pause() {
                             println!("{e}");
                         }
@@ -289,7 +310,7 @@ pub async fn event_handler(
                     IrcChat::ModsOnly => {
                         ws_sender
                             .send(Message::Text(to_irc_message(String::from(
-                                "This command can only be used by moderators",
+                                "This command can only be used by mods",
                             ))))
                             .await?;
                     }
