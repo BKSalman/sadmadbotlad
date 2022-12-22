@@ -1,20 +1,16 @@
-use crate::{
-    discord::online_notification,
-    twitch::TwitchApiResponse,
-    ApiInfo,
-};
+use crate::{discord::online_notification, twitch::TwitchApiResponse, ApiInfo};
 use crate::{flatten, FrontEndEvent};
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use reqwest::Url;
+use reqwest::{Url, StatusCode};
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-pub async fn eventsub (
+pub async fn eventsub(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
     println!("Starting eventsub");
@@ -22,19 +18,17 @@ pub async fn eventsub (
 
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
-            .await.wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
+            .await
+            .wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
 
     let (sender, receiver) = socket.split();
 
-    if let Err(e) = tokio::try_join!(
-        // flatten(tokio::spawn(write(sender, watch))),
-        flatten(tokio::spawn(read(
-            front_end_event_sender,
-            api_info,
-            receiver,
-            sender
-        )))
-    )
+    if let Err(e) = tokio::try_join!(flatten(tokio::spawn(read(
+        front_end_event_sender,
+        api_info,
+        receiver,
+        sender
+    ))))
     .wrap_err_with(|| "failed to read eventsub websocket")
     {
         eprintln!("eventsub websocket failed:: {e}")
@@ -43,7 +37,7 @@ pub async fn eventsub (
     Ok(())
 }
 
-async fn read (
+async fn read(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
     api_info: ApiInfo,
     mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
@@ -62,17 +56,10 @@ async fn read (
                     return Err(eyre::Report::msg("connection unsed... disconnecting"));
                 }
 
-                // let json_msg = match serde_json::from_str::<WsEventSub>(&msg) {
-                //     Ok(json_msg) => json_msg,
-                //     Err(e) => {
-                //         panic!("eventsub json Error: {} \n\n Message: {}", e, msg);
-                //     }
-                // };
-
                 let json_lossy = match serde_json::from_str::<Value>(&msg) {
                     Ok(json_msg) => json_msg,
                     Err(e) => {
-                        panic!("eventsub:: json Error: {} \n\n Message: {}", e, msg);
+                        panic!("eventsub:: json Error: {} \n Message: {}", e, msg);
                     }
                 };
 
@@ -115,7 +102,6 @@ async fn read (
                     let sub_type = subscription["type"].as_str().expect("sub type");
 
                     println!("got {:?} event", sub_type);
-                    // println!("{:#?}", json_msg);
 
                     match sub_type {
                         "stream.online" => {
@@ -140,21 +126,7 @@ async fn read (
                         _ => {}
                     }
                     // else if subscription.r#type == "stream.offline" {
-                    //     match http_client
-                    //         .get("https://api.twitch.tv/helix/streams?user_id=143306668")
-                    //         .bearer_auth(api_info.twitch_oauth.clone())
-                    //         .header("Client-Id", api_info.client_id.clone())
-                    //         .send()
-                    //         .await?
-                    //         .json::<TwitchApiResponse>()
-                    //         .await
-                    //     {
-                    //         Ok(res) => {
-                    //             online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
-                    //         }
-
-                    //         Err(e) => println!("{e}\n"),
-                    //     }
+                        // make it change the "started at" to "ended"
                     // }
                 }
             }
@@ -189,7 +161,7 @@ async fn online_event(api_info: &ApiInfo) -> Result<(), color_eyre::Report> {
 async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    http_client
+    let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(api_info.twitch_access_token.clone())
         .header("Client-Id", api_info.client_id.clone())
@@ -207,13 +179,17 @@ async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
         .send()
         .await?;
 
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("offline_eventsub:: unauthorized"));
+    }
+
     Ok(())
 }
 
 async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    http_client
+    let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(api_info.twitch_access_token.clone())
         .header("Client-Id", api_info.client_id.clone())
@@ -230,6 +206,10 @@ async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
         }))
         .send()
         .await?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("online_eventsub:: unauthorized"));
+    }
 
     Ok(())
 }
@@ -237,7 +217,7 @@ async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
 async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    http_client
+    let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(api_info.twitch_access_token.clone())
         .header("Client-Id", api_info.client_id.clone())
@@ -255,13 +235,17 @@ async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
         .send()
         .await?;
 
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("online_eventsub:: unauthorized"));
+    }
+
     Ok(())
 }
 
 async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    http_client
+    let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(api_info.twitch_access_token.clone())
         .header("Client-Id", api_info.client_id.clone())
@@ -278,6 +262,10 @@ async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Re
         }))
         .send()
         .await?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("online_eventsub:: unauthorized"));
+    }
 
     Ok(())
 }

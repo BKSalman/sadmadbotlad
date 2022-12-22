@@ -1,5 +1,6 @@
 use crate::ApiInfo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use reqwest::StatusCode;
 use serde_json::Value;
 
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
@@ -9,7 +10,7 @@ pub struct VideoInfo {
     pub title: String,
 }
 
-pub fn video_id_from_url(url: &str) -> Result<&str, &str> {
+pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
     if url.contains("?v=") && url.contains("&") {
         return Ok(&url[url.find("?v=").unwrap() + 3..url.find('&').unwrap()]);
     } else if url.contains("?v=") {
@@ -20,10 +21,10 @@ pub fn video_id_from_url(url: &str) -> Result<&str, &str> {
         return Ok(url.rsplit_once('/').expect("yt watch format link").1);
     }
 
-    return Err("Not A Valid Youtube URL");
+    return Err(eyre::eyre!("Not A Valid Youtube URL"));
 }
 
-pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, reqwest::Error> {
+pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -33,7 +34,13 @@ pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, r
             video_id, api_info.google_api_key
         ))
         .send()
-        .await?
+        .await?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("video_title:: Unauthorized"));
+    }
+    
+    let res = res
         .json::<Value>()
         .await?;
 
@@ -48,7 +55,7 @@ pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, r
 pub async fn video_info(
     video_query: &str,
     api_info: &ApiInfo,
-) -> Result<VideoInfo, reqwest::Error> {
+) -> Result<VideoInfo, eyre::Report> {
     let http_client = reqwest::Client::new();
 
     println!("{video_query}");
@@ -61,10 +68,14 @@ pub async fn video_info(
             api_info.google_api_key
         ))
         .send()
-        .await?
-        .json::<Value>()
         .await?;
 
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("video_info:: Unauthorized"))
+    }
+
+    let res = res.json::<Value>()
+        .await?;
     let video_title = res["items"][0]["snippet"]["title"]
         .as_str()
         .expect("yt video title");

@@ -31,17 +31,11 @@ impl SongRequestSetup {
         irc_msg: &str,
         irc_sender: impl Into<String>,
         song_sender: &Sender<SongRequest>,
-    ) -> Result<String, std::io::Error> {
+    ) -> Result<String, eyre::Report> {
         // request is a video title
         if !irc_msg.starts_with("https://") {
             let video_info = youtube::video_info(irc_msg, &self.api_info)
-                .await
-                .map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::ConnectionRefused,
-                        "couldn't get video info",
-                    )
-                })?;
+                .await?;
 
             let song = SongRequest {
                 title: video_info.title,
@@ -58,18 +52,10 @@ impl SongRequestSetup {
         }
         // request is a valid yt URL
 
-        let Ok(video_id) = youtube::video_id_from_url(irc_msg) else {
-                println!("not a valid url");
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid URL"));
-            };
+        let video_id = youtube::video_id_from_url(irc_msg)?;
+
         let video_title = youtube::video_title(irc_msg, &self.api_info)
-            .await
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    "couldn't get video info",
-                )
-            })?;
+            .await?;
 
         let video_title = decode_html_entities(&video_title).to_string();
         

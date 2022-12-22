@@ -1,5 +1,9 @@
-use std::{fs::File, path::Path};
+use std::{
+    fs,
+    io::Read
+};
 
+use eyre::Context;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -205,20 +209,26 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
         panic!("Unauthorized:: could not refresh access token")
     }
 
-    let res = res.json::<Value>()
-    .await?;
+    let res = res.json::<Value>().await?;
 
-    let new_refresh_token = res["refresh_token"].as_str().unwrap();
-    let new_access_token = res["access_token"].as_str().unwrap();
+    let mut config_str = String::new();
 
-    if new_refresh_token == api_info.twitch_refresh_token {
-        let path = Path::new("refresh_token.txt");
-        File::create(path)?;
-        std::fs::write(path, format!("{}\n{}", new_refresh_token, new_access_token))?;
-    }
+    let mut config_file = fs::File::open("config.toml").wrap_err_with(|| "no config file")?;
 
-    api_info.twitch_refresh_token = new_refresh_token.to_string();
-    api_info.twitch_refresh_token = new_access_token.to_string();
+    config_file
+        .read_to_string(&mut config_str)
+        .wrap_err_with(|| "couldn't read config file")?;
+
+    let mut configs =
+        toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
+
+    configs.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+    configs.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
+
+    fs::write("config.toml", toml::to_string(&configs).expect("parse api info struct to string"))?;
+    
+    api_info.twitch_refresh_token = configs.twitch_refresh_token;
+    api_info.twitch_access_token = configs.twitch_access_token;
 
     Ok(())
 }

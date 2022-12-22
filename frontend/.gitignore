@@ -7,3 +7,4 @@ dist/
 refresh_token.txt
 /assets/
 frontend/assets/
+frontend/dist/

@@ -248,15 +248,7 @@ async fn read(
             }
             Ok(_) => {}
             Err(e) => {
-                println!("{e}");
-                // event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Unauthorized)))?;
-                // this looks dangerous... I don't trust it
-                // irc_connect().await?;
-
-                return Err(eyre::ErrReport::new(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "Unautherized",
-                )));
+                return Err(eyre::eyre!("{e}"));
             }
         }
     }

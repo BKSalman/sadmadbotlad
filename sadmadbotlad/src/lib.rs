@@ -1,7 +1,7 @@
 use std::{fs, io::Read};
 
 use eyre::WrapErr;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use song_requests::Queue;
 use tokio::task::JoinHandle;
 
@@ -38,7 +38,7 @@ pub enum FrontEndEvent {
     SongsResponse(Queue),
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ApiInfo {
     pub google_api_key: String,
     pub user: String,
