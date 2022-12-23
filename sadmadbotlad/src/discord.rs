@@ -1,3 +1,4 @@
+use reqwest::StatusCode;
 use serde::Serialize;
 
 use crate::{twitch::TwitchApiResponse, ApiInfo};
@@ -35,28 +36,25 @@ struct Message {
     embeds: Vec<Embed>,
 }
 
-pub async fn online_notification(
-    api_info: &ApiInfo,
-    title: &str,
-    game_name: &str,
-) -> Result<(), reqwest::Error> {
+pub async fn online_notification(api_info: &ApiInfo) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let timestamp = http_client
+    let res = http_client
         .get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
         .bearer_auth(api_info.twitch_access_token.clone())
         .header("Client-Id", api_info.client_id.clone())
         .send()
-        .await?
-        .json::<TwitchApiResponse>()
-        .await
-        .and_then(|res| {
-            Ok(
-                chrono::DateTime::parse_from_rfc3339(&res.data[0].started_at)
-                    .expect("twitch fucked this one up")
-                    .timestamp(),
-            )
-        })?;
+        .await?;
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("Unauthorized"));
+    }
+    let res = res.json::<TwitchApiResponse>().await?;
+
+    let timestamp = chrono::DateTime::parse_from_rfc3339(&res.data[0].started_at)?.timestamp();
+
+    let title = &res.data[0].title;
+
+    let game_name = &res.data[0].game_name;
 
     let message = Message {
         content: String::from("<@&897124518374559794> Salman is streaming\n"),

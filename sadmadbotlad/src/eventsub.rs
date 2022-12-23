@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::FrontEndEvent;
-use crate::{discord::online_notification, twitch::TwitchApiResponse, ApiInfo};
+use crate::{discord::online_notification, ApiInfo};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
@@ -75,9 +75,9 @@ async fn read(
 
                     let session_id = session["id"].as_str().expect("session id");
 
-                    offline_eventsub(&api_info, &session_id).await?;
-
                     online_eventsub(&api_info, &session_id).await?;
+
+                    offline_eventsub(&api_info, &session_id).await?;
 
                     follow_eventsub(&api_info, &session_id).await?;
 
@@ -95,7 +95,7 @@ async fn read(
 
                     match sub_type {
                         "stream.online" => {
-                            online_event(&api_info).await?;
+                            online_notification(&api_info).await?;
                         }
                         "channel.follow" => {
                             let follower = json_lossy["payload"]["event"]["user_name"]
@@ -131,28 +131,6 @@ async fn read(
             Err(e) => println!("{e}"),
         }
     }
-    Ok(())
-}
-
-async fn online_event(api_info: &ApiInfo) -> Result<(), color_eyre::Report> {
-    let http_client = reqwest::Client::new();
-
-    match http_client
-        .get("https://api.twitch.tv/helix/streams?user_id=143306668")
-        .bearer_auth(api_info.twitch_access_token.clone())
-        .header("Client-Id", api_info.client_id.clone())
-        .send()
-        .await?
-        .json::<TwitchApiResponse>()
-        .await
-    {
-        Ok(res) => {
-            online_notification(api_info, &res.data[0].title, &res.data[0].game_name).await?;
-        }
-
-        Err(e) => println!("{e}\n"),
-    }
-
     Ok(())
 }
 
@@ -192,7 +170,7 @@ async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
         .bearer_auth(api_info.twitch_access_token.clone())
         .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
-            "type": "channel.follow",
+            "type": "stream.online",
             "version": "1",
             "condition": {
                 "broadcaster_user_id": "143306668" //110644052
