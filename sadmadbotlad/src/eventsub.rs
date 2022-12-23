@@ -85,6 +85,8 @@ async fn read(
 
                     subscribe_eventsub(&api_info, &session_id).await?;
 
+                    rewards_eventsub(&api_info, &session_id).await?;
+
                     println!("Subscribed to eventsubs");
                 } else if let Some(subscription) =
                     &json_lossy["payload"]["subscription"].as_object()
@@ -121,11 +123,21 @@ async fn read(
                             write_recent("sub", &subscriber)?;
                             front_end_event_sender.send(FrontEndEvent::Subscribe { subscriber })?;
                         }
+                        "channel.channel_points_custom_reward_redemption.add" => {
+                            let redeemer = json_lossy["payload"]["event"]["user_name"]
+                                .as_str()
+                                .expect("user_name")
+                                .to_string();
+
+                            let reward_title = json_lossy["payload"]["event"]["reward"]["title"]
+                                .as_str()
+                                .expect("reward title")
+                                .to_string();
+
+                            println!("{redeemer} redeemed: {reward_title}");
+                        }
                         _ => {}
                     }
-                    // else if subscription.r#type == "stream.offline" {
-                    // make it change the "started at" to "ended"
-                    // }
                 }
             }
             Err(e) => println!("{e}"),
@@ -279,5 +291,33 @@ fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), eyre::Repo
         format!("recent_{}.txt", sub_type),
         format!("recent {}: {}", sub_type, arg.into()),
     )?;
+    Ok(())
+}
+
+async fn rewards_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    let res = http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "type": "channel.channel_points_custom_reward_redemption.add",
+            "version": "1",
+            "condition": {
+                "broadcaster_user_id": "143306668" //110644052
+            },
+            "transport": {
+                "method": "websocket",
+                "session_id": session
+            }
+        }))
+        .send()
+        .await?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("subscribe_eventsub:: unauthorized"));
+    }
+
     Ok(())
 }
