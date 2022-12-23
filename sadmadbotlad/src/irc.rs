@@ -134,10 +134,10 @@ async fn read(
                     "!queue" | "!q" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Queue)))?
                     }
-                    "!currentsong" => {
+                    "!currentsong" | "!song" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSong)))?
                     }
-                    "!currentspotify" => {
+                    "!currentspotify" | "!currentsp" => {
                         event_sender
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSongSpotify)))?;
                     }

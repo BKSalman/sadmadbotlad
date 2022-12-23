@@ -161,6 +161,20 @@ async fn handle_front_end_events (
                     }
                 }
             }
+            FrontEndEvent::Subscribe { subscriber } => {
+                match ws_sender
+                    .lock()
+                    .await
+                    .send(Message::Text(format!("sub::{}", subscriber)))
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("WebSocket server:: {e}");
+                        break;
+                    }
+                }
+            }
             FrontEndEvent::QueueRequest => {}
             FrontEndEvent::SongsResponse(queue) => {
                 let Ok(queue) = serde_json::to_string(&queue) else {

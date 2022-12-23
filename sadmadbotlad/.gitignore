@@ -6,3 +6,6 @@ refresh_token.txt
 frontend/assets/
 config.toml
 config.toml.bak
+recent_sub.txt
+recent_follow.txt
+recent_raid.txt

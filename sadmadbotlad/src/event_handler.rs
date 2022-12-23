@@ -329,6 +329,13 @@ pub async fn event_handler(
                                 println!("frontend event failed:: {e:?}")
                             }
                         }
+                        "sub" => {
+                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Subscribe {
+                                subscriber: String::from("lmao"),
+                            }) {
+                                println!("frontend event failed:: {e:?}")
+                            }
+                        }
                         _ => {
                             println!("no args provided");
                             if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
@@ -386,6 +393,7 @@ async fn front_end_receiver(
         match msg {
             FrontEndEvent::Follow { follower: _ } => {}
             FrontEndEvent::Raid { from: _ } => {}
+            FrontEndEvent::Subscribe { subscriber: _ } => {}
             FrontEndEvent::QueueRequest => {
                 front_end_events_sender
                     .send(FrontEndEvent::SongsResponse(

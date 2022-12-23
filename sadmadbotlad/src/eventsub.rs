@@ -1,9 +1,9 @@
-use crate::{discord::online_notification, twitch::TwitchApiResponse, ApiInfo};
+use std::fs;
+
 use crate::FrontEndEvent;
+use crate::{discord::online_notification, twitch::TwitchApiResponse, ApiInfo};
 use eyre::WrapErr;
-use futures_util::{
-    SinkExt, StreamExt,
-};
+use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
 use tokio_retry::strategy::ExponentialBackoff;
@@ -13,7 +13,6 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 pub async fn eventsub(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
-
     Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
         read(front_end_event_sender.clone())
     })
@@ -84,6 +83,8 @@ async fn read(
 
                     raid_eventsub(&api_info, &session_id).await?;
 
+                    subscribe_eventsub(&api_info, &session_id).await?;
+
                     println!("Subscribed to eventsubs");
                 } else if let Some(subscription) =
                     &json_lossy["payload"]["subscription"].as_object()
@@ -97,20 +98,28 @@ async fn read(
                             online_event(&api_info).await?;
                         }
                         "channel.follow" => {
-                            front_end_event_sender.send(FrontEndEvent::Follow {
-                                follower: json_lossy["payload"]["event"]["user_name"]
-                                    .as_str()
-                                    .expect("follow username")
-                                    .to_string(),
-                            })?;
+                            let follower = json_lossy["payload"]["event"]["user_name"]
+                                .as_str()
+                                .expect("follow username")
+                                .to_string();
+                            write_recent("follow", &follower)?;
+                            front_end_event_sender.send(FrontEndEvent::Follow { follower })?;
                         }
                         "channel.raid" => {
-                            front_end_event_sender.send(FrontEndEvent::Raid {
-                                from: json_lossy["payload"]["event"]["from_broadcaster_user_name"]
-                                    .as_str()
-                                    .expect("from_broadcaster_user_name")
-                                    .to_string(),
-                            })?;
+                            let from = json_lossy["payload"]["event"]["from_broadcaster_user_name"]
+                                .as_str()
+                                .expect("from_broadcaster_user_name")
+                                .to_string();
+                            write_recent("raid", &from)?;
+                            front_end_event_sender.send(FrontEndEvent::Raid { from })?;
+                        }
+                        "channel.subscribe" => {
+                            let subscriber = json_lossy["payload"]["event"]["user_name"]
+                                .as_str()
+                                .expect("user_name")
+                                .to_string();
+                            write_recent("sub", &subscriber)?;
+                            front_end_event_sender.send(FrontEndEvent::Subscribe { subscriber })?;
                         }
                         _ => {}
                     }
@@ -225,7 +234,7 @@ async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("online_eventsub:: unauthorized"));
+        return Err(eyre::eyre!("follow_eventsub:: unauthorized"));
     }
 
     Ok(())
@@ -253,8 +262,44 @@ async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Re
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("online_eventsub:: unauthorized"));
+        return Err(eyre::eyre!("raid_eventsub:: unauthorized"));
     }
 
+    Ok(())
+}
+
+async fn subscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    let res = http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "type": "channel.subscribe",
+            "version": "1",
+            "condition": {
+                "broadcaster_user_id": "143306668" //110644052
+            },
+            "transport": {
+                "method": "websocket",
+                "session_id": session
+            }
+        }))
+        .send()
+        .await?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(eyre::eyre!("subscribe_eventsub:: unauthorized"));
+    }
+
+    Ok(())
+}
+
+fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), eyre::Report> {
+    fs::write(
+        format!("recent_{}.txt", sub_type),
+        format!("recent {}: {}", sub_type, arg.into()),
+    )?;
     Ok(())
 }

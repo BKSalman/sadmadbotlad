@@ -8,6 +8,7 @@ use yew::prelude::*;
 pub enum Msg {
     Follow(String),
     Raid(String),
+    Sub(String),
     Clear(()),
     Nothing,
 }
@@ -23,12 +24,12 @@ impl Component for Alerts {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        let ws = WebSocket::open("wss://ws.bksalman.com").expect("Ws");
+        let ws = WebSocket::open("ws://localhost:3000").expect("Ws");
 
         let (_, ws_receiver) = ws.split();
 
         let ws_receiver = Rc::new(RefCell::new(ws_receiver));
-        ctx.link().send_future(do_stuff(ws_receiver.clone()));
+        ctx.link().send_future(handle_alert(ws_receiver.clone()));
 
         Self {
             alert: None,
@@ -49,8 +50,13 @@ impl Component for Alerts {
                 self.alert_msg = Some(format!("{from} raided 🦀!"));
                 true
             }
+            Msg::Sub(subscriber) => {
+                self.alert = Some(String::from("sub"));
+                self.alert_msg = Some(format!("{subscriber} subscribed!"));
+                true
+            }
             Msg::Clear(()) => {
-                ctx.link().send_future(do_stuff(self.ws_receiver.clone()));
+                ctx.link().send_future(handle_alert(self.ws_receiver.clone()));
                 self.alert = None;
                 self.alert_msg = None;
                 true
@@ -86,7 +92,7 @@ impl Component for Alerts {
     }
 }
 
-async fn do_stuff(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
+async fn handle_alert(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
     if let Some(ws_msg) = ws_receiver.borrow_mut().next().await {
         match ws_msg {
             Ok(Message::Text(msg)) => {
@@ -100,6 +106,9 @@ async fn do_stuff(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
                     }
                     "raid" => {
                         return Msg::Raid(arg.to_string());
+                    }
+                    "sub" => {
+                        return Msg::Sub(arg.to_string());
                     }
                     _ => {
                         return Msg::Nothing;

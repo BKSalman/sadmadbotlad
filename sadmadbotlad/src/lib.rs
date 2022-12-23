@@ -35,6 +35,9 @@ pub enum FrontEndEvent {
     Raid {
         from: String,
     },
+    Subscribe {
+        subscriber: String,
+    },
     QueueRequest,
     SongsResponse(Queue),
 }
