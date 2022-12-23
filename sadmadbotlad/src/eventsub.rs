@@ -1,49 +1,41 @@
 use crate::{discord::online_notification, twitch::TwitchApiResponse, ApiInfo};
-use crate::{flatten, FrontEndEvent};
+use crate::FrontEndEvent;
 use eyre::WrapErr;
 use futures_util::{
-    stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use reqwest::{Url, StatusCode};
+use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
-use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_retry::strategy::ExponentialBackoff;
+use tokio_retry::Retry;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
-    println!("Starting eventsub");
-    let api_info = ApiInfo::new()?;
 
-    let (socket, _) =
-        connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
-            .await
-            .wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
-
-    let (sender, receiver) = socket.split();
-
-    if let Err(e) = tokio::try_join!(flatten(tokio::spawn(read(
-        front_end_event_sender,
-        api_info,
-        receiver,
-        sender
-    ))))
-    .wrap_err_with(|| "failed to read eventsub websocket")
-    {
-        eprintln!("eventsub websocket failed:: {e}")
-    }
+    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
+        read(front_end_event_sender.clone())
+    })
+    .await
+    .with_context(|| "eventsub:: read websocket")?;
 
     Ok(())
 }
 
 async fn read(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
-    api_info: ApiInfo,
-    mut recv: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
 ) -> Result<(), eyre::Report> {
-    while let Some(msg) = recv.next().await {
+    let (socket, _) =
+        connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
+            .await
+            .wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
+
+    let (mut sender, mut receiver) = socket.split();
+
+    let api_info = ApiInfo::new().await?;
+
+    while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Ping(ping)) => {
                 // println!("eventsub:: ping");
@@ -69,33 +61,30 @@ async fn read(
 
                         let (socket, _) = connect_async(
                             Url::parse(&session["reconnect_url"].as_str().expect("reconnect url"))
-                                .expect("Url parsed"),
+                                .expect("Parsed URL"),
                         )
                         .await?;
 
-                        let (send, receiver) = socket.split();
+                        let (new_sender, new_receiver) = socket.split();
 
-                        sender = send;
+                        sender = new_sender;
 
-                        recv = receiver;
+                        receiver = new_receiver;
 
                         continue;
                     }
 
                     let session_id = session["id"].as_str().expect("session id");
 
-                    if let Ok(_) = offline_eventsub(&api_info, &session_id).await {
-                        println!("offline sub");
-                    }
-                    if let Ok(_) = online_eventsub(&api_info, &session_id).await {
-                        println!("online sub");
-                    }
-                    if let Ok(_) = follow_eventsub(&api_info, &session_id).await {
-                        println!("follow sub");
-                    }
-                    if let Ok(_) = raid_eventsub(&api_info, &session_id).await {
-                        println!("raid sub");
-                    }
+                    offline_eventsub(&api_info, &session_id).await?;
+
+                    online_eventsub(&api_info, &session_id).await?;
+
+                    follow_eventsub(&api_info, &session_id).await?;
+
+                    raid_eventsub(&api_info, &session_id).await?;
+
+                    println!("Subscribed to eventsubs");
                 } else if let Some(subscription) =
                     &json_lossy["payload"]["subscription"].as_object()
                 {
@@ -126,7 +115,7 @@ async fn read(
                         _ => {}
                     }
                     // else if subscription.r#type == "stream.offline" {
-                        // make it change the "started at" to "ended"
+                    // make it change the "started at" to "ended"
                     // }
                 }
             }

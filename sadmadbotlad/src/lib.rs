@@ -4,6 +4,7 @@ use eyre::WrapErr;
 use serde::{Deserialize, Serialize};
 use song_requests::Queue;
 use tokio::task::JoinHandle;
+use twitch::refresh_access_token;
 
 pub mod discord;
 pub mod event_handler;
@@ -50,7 +51,7 @@ pub struct ApiInfo {
 }
 
 impl ApiInfo {
-    pub fn new() -> Result<Self, eyre::Report> {
+    pub async fn new() -> Result<Self, eyre::Report> {
         let Ok(mut config) = fs::File::open("config.toml") else {
             panic!("no config file");
         };
@@ -59,7 +60,8 @@ impl ApiInfo {
         config.read_to_string(&mut config_str).expect("config str");
 
         match toml::from_str::<ApiInfo>(&config_str) {
-            Ok(api_info) => {
+            Ok(mut api_info) => {
+                refresh_access_token(&mut api_info).await?;
                 Ok(api_info)
             }
             Err(e) => {

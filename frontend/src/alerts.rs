@@ -42,13 +42,11 @@ impl Component for Alerts {
             Msg::Follow(user) => {
                 self.alert = Some(String::from("follow"));
                 self.alert_msg = Some(format!("{user} followed 😎!"));
-                console::log!(format!("{user}"));
                 true
             }
             Msg::Raid(from) => {
                 self.alert = Some(String::from("raid"));
                 self.alert_msg = Some(format!("{from} raided 🦀!"));
-                console::log!(format!("{from}"));
                 true
             }
             Msg::Clear(()) => {

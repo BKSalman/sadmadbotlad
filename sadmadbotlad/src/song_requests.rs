@@ -19,10 +19,10 @@ pub struct SongRequestSetup {
 }
 
 impl SongRequestSetup {
-    pub fn new() -> Result<Self, eyre::Report> {
+    pub async fn new() -> Result<Self, eyre::Report> {
         Ok(Self {
             queue: Queue::new(),
-            api_info: ApiInfo::new()?,
+            api_info: ApiInfo::new().await?,
         })
     }
 

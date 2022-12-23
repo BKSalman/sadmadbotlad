@@ -206,7 +206,7 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        panic!("Unauthorized:: could not refresh access token")
+        return Err(eyre::eyre!("Unauthorized:: could not refresh access token"))
     }
 
     let res = res.json::<Value>().await?;

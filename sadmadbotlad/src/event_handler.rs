@@ -82,7 +82,7 @@ pub async fn event_handler(
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
 ) -> Result<(), eyre::Report> {
-    let sr_setup = Arc::new(tokio::sync::RwLock::new(SongRequestSetup::new()?));
+    let sr_setup = Arc::new(tokio::sync::RwLock::new(SongRequestSetup::new().await?));
     let song_sender = Arc::new(song_sender);
 
     irc_login(&mut ws_sender, &sr_setup.read().await.api_info).await?;
