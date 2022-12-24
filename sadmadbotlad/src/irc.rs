@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    event_handler::{self, event_handler, Event, IrcChat, IrcEvent, IrcWs},
+    event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
     ApiInfo, FrontEndEvent,
@@ -17,7 +17,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 pub async fn irc_connect (
     front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
     e_sender: UnboundedSender<Event>,
-    e_receiver: UnboundedReceiver<Event>
+    e_receiver: UnboundedReceiver<Event>,
+    api_info: Arc<ApiInfo>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
 
@@ -47,6 +48,7 @@ pub async fn irc_connect (
             ws_sender,
             ws_receiver,
             front_end_events_sender,
+            api_info,
         ))),
     )
     .wrap_err_with(|| "irc")?;

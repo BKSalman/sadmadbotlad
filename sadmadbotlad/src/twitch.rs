@@ -181,7 +181,7 @@ pub struct AdData {
     pub retry_after: i64,
 }
 
-pub async fn set_title(new_title: &str, api_info: &mut ApiInfo) -> Result<(), eyre::Report> {
+pub async fn set_title(new_title: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
     // request twitch patch change title
 
     let http_client = Client::new();
@@ -197,13 +197,13 @@ pub async fn set_title(new_title: &str, api_info: &mut ApiInfo) -> Result<(), ey
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        refresh_access_token(api_info).await?;
+        return Err(eyre::eyre!("set_title:: Unauthorized"));
     }
 
     Ok(())
 }
 
-pub async fn get_title(api_info: &mut ApiInfo) -> Result<String, eyre::Report> {
+pub async fn get_title(api_info: &ApiInfo) -> Result<String, eyre::Report> {
     let http_client = Client::new();
 
     let res = http_client
@@ -214,7 +214,7 @@ pub async fn get_title(api_info: &mut ApiInfo) -> Result<String, eyre::Report> {
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        refresh_access_token(api_info).await?;
+        return Err(eyre::eyre!("get_title:: Unauthorized"))
     }
 
     let res = res.json::<Value>().await?;

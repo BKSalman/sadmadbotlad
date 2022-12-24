@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 // TODO: queue in front end
 use eyre::WrapErr;
-use sadmadbotlad::event_handler;
+use sadmadbotlad::{event_handler, ApiInfo};
 use sadmadbotlad::{FrontEndEvent, obs_websocket::obs_websocket};
 // use tokio_retry::{strategy::ExponentialBackoff, Retry};
 
@@ -29,11 +31,13 @@ async fn run() -> Result<(), eyre::Report> {
 
     let (e_sender, e_receiver) = tokio::sync::mpsc::unbounded_channel::<event_handler::Event>();
 
+    let api_info = Arc::new(ApiInfo::new().await?);
+
     tokio::try_join!(
-        flatten(tokio::spawn(eventsub(sender.clone()))),
-        flatten(tokio::spawn(irc_connect(sender.clone(), e_sender.clone(), e_receiver))),
+        flatten(tokio::spawn(eventsub(sender.clone(), api_info.clone()))),
+        flatten(tokio::spawn(irc_connect(sender.clone(), e_sender.clone(), e_receiver, api_info.clone()))),
         flatten(tokio::spawn(ws_server(sender))),
-        flatten(tokio::spawn(obs_websocket(e_sender))),
+        flatten(tokio::spawn(obs_websocket(e_sender, api_info))),
         // TODO: get current spotify song every 20 secs
     )
     .wrap_err_with(|| "Run")?;

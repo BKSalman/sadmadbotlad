@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use crate::FrontEndEvent;
 use crate::{discord::online_notification, ApiInfo};
@@ -12,9 +13,10 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
     Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
-        read(front_end_event_sender.clone())
+        read(front_end_event_sender.clone(), api_info.clone())
     })
     .await
     .with_context(|| "eventsub:: read websocket")?;
@@ -24,6 +26,7 @@ pub async fn eventsub(
 
 async fn read(
     front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
@@ -31,8 +34,6 @@ async fn read(
             .wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
 
     let (mut sender, mut receiver) = socket.split();
-
-    let api_info = ApiInfo::new().await?;
 
     while let Some(msg) = receiver.next().await {
         match msg {

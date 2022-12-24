@@ -9,8 +9,8 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::twitch::{get_title, refresh_access_token, set_title};
-use crate::FrontEndEvent;
+use crate::twitch::{get_title, set_title};
+use crate::{FrontEndEvent, ApiInfo};
 use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::{SongRequest, SongRequestSetup},
@@ -35,7 +35,6 @@ pub enum IrcEvent {
 pub enum IrcWs {
     Ping(Vec<u8>),
     Reconnect,
-    Unauthorized,
 }
 
 #[derive(Debug)]
@@ -82,11 +81,12 @@ pub async fn event_handler(
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
-    let sr_setup = Arc::new(tokio::sync::RwLock::new(SongRequestSetup::new().await?));
+    let sr_setup = Arc::new(tokio::sync::RwLock::new(SongRequestSetup::new()?));
     let song_sender = Arc::new(song_sender);
 
-    irc_login(&mut ws_sender, &sr_setup.read().await.api_info).await?;
+    irc_login(&mut ws_sender, &api_info).await?;
 
     let fees = front_end_events_sender.clone();
 
@@ -115,10 +115,7 @@ pub async fn event_handler(
                         let mut locked_ws_receiver = ws_receiver.lock().await;
                         *locked_ws_receiver = receiver;
 
-                        irc_login(&mut ws_sender, &sr_setup.read().await.api_info).await?;
-                    }
-                    IrcWs::Unauthorized => {
-                        refresh_access_token(&mut sr_setup.write().await.api_info).await?;
+                        irc_login(&mut ws_sender, &api_info).await?;
                     }
                 },
                 IrcEvent::Chat(event) => match event {
@@ -136,7 +133,7 @@ pub async fn event_handler(
                         let message = sr_setup
                             .write()
                             .await
-                            .sr(&song, sender, song_sender.as_ref())
+                            .sr(&song, sender, song_sender.as_ref(), api_info.clone())
                             .await?;
                         ws_sender.send(Message::Text(message)).await?;
                     }
@@ -291,7 +288,7 @@ pub async fn event_handler(
                         }
                     }
                     IrcChat::GetTitle => {
-                        let title = get_title(&mut sr_setup.write().await.api_info).await?;
+                        let title = get_title(&api_info).await?;
                         ws_sender
                             .send(Message::Text(to_irc_message(format!(
                                 "Current stream title: {}",
@@ -300,7 +297,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::SetTitle(title) => {
-                        set_title(&title, &mut sr_setup.write().await.api_info).await?;
+                        set_title(&title, &api_info).await?;
                         ws_sender
                             .send(Message::Text(to_irc_message(format!(
                                 "Set stream title to: {}",

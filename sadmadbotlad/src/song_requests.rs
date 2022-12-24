@@ -15,14 +15,12 @@ use html_escape::decode_html_entities;
 
 pub struct SongRequestSetup {
     pub queue: Queue,
-    pub api_info: ApiInfo,
 }
 
 impl SongRequestSetup {
-    pub async fn new() -> Result<Self, eyre::Report> {
+    pub fn new() -> Result<Self, eyre::Report> {
         Ok(Self {
             queue: Queue::new(),
-            api_info: ApiInfo::new().await?,
         })
     }
 
@@ -31,10 +29,11 @@ impl SongRequestSetup {
         irc_msg: &str,
         irc_sender: impl Into<String>,
         song_sender: &Sender<SongRequest>,
+        api_info: Arc<ApiInfo>,
     ) -> Result<String, eyre::Report> {
         // request is a video title
         if !irc_msg.starts_with("https://") {
-            let video_info = youtube::video_info(irc_msg, &self.api_info)
+            let video_info = youtube::video_info(irc_msg, api_info)
                 .await?;
 
             let song = SongRequest {
@@ -54,7 +53,7 @@ impl SongRequestSetup {
 
         let video_id = youtube::video_id_from_url(irc_msg)?;
 
-        let video_title = youtube::video_title(irc_msg, &self.api_info)
+        let video_title = youtube::video_title(irc_msg, api_info)
             .await?;
 
         let video_title = decode_html_entities(&video_title).to_string();

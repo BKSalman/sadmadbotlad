@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::ApiInfo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use reqwest::StatusCode;
@@ -24,7 +26,7 @@ pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
     return Err(eyre::eyre!("Not A Valid Youtube URL"));
 }
 
-pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, eyre::Report> {
+pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<String, eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -39,10 +41,8 @@ pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, e
     if res.status() == StatusCode::UNAUTHORIZED {
         return Err(eyre::eyre!("video_title:: Unauthorized"));
     }
-    
-    let res = res
-        .json::<Value>()
-        .await?;
+
+    let res = res.json::<Value>().await?;
 
     let video_title = res["items"][0]["snippet"]["title"]
         .as_str()
@@ -54,7 +54,7 @@ pub async fn video_title(video_id: &str, api_info: &ApiInfo) -> Result<String, e
 
 pub async fn video_info(
     video_query: &str,
-    api_info: &ApiInfo,
+    api_info: Arc<ApiInfo>,
 ) -> Result<VideoInfo, eyre::Report> {
     let http_client = reqwest::Client::new();
 
@@ -71,11 +71,10 @@ pub async fn video_info(
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("video_info:: Unauthorized"))
+        return Err(eyre::eyre!("video_info:: Unauthorized"));
     }
 
-    let res = res.json::<Value>()
-        .await?;
+    let res = res.json::<Value>().await?;
     let video_title = res["items"][0]["snippet"]["title"]
         .as_str()
         .expect("yt video title");
