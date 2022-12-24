@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    io::Read
-};
+use std::{fs, io::Read, fmt};
 
 use eyre::Context;
 use reqwest::{Client, StatusCode};
@@ -10,6 +7,29 @@ use serde_json::{json, Value};
 use twitch_api::types::Timestamp;
 
 use crate::ApiInfo;
+
+#[derive(Debug)]
+pub enum AdError {
+    TooManyRequests,
+    UnAuthorized,
+    RequestErr(reqwest::Error)
+}
+
+impl fmt::Display for AdError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self {
+            Self::TooManyRequests => {
+                write!(f, "Too many commerial requests")
+            }
+            Self::UnAuthorized => {
+                write!(f, "Unauthorized commercial request")
+            }
+            Self::RequestErr(e) => {
+                write!(f, "{e}")
+            }
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct WsEventSub {
@@ -149,6 +169,18 @@ pub struct TwitchGetChannelInfo {
     broadcaster_language: String,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct TwitchAd {
+    pub data: Vec<AdData>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AdData {
+    pub length: i32,
+    pub message: String,
+    pub retry_after: i64,
+}
+
 pub async fn set_title(new_title: &str, api_info: &mut ApiInfo) -> Result<(), eyre::Report> {
     // request twitch patch change title
 
@@ -206,7 +238,7 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("Unauthorized:: could not refresh access token"))
+        return Err(eyre::eyre!("Unauthorized:: could not refresh access token"));
     }
 
     let res = res.json::<Value>().await?;
@@ -225,8 +257,11 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
     configs.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
     configs.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
-    fs::write("config.toml", toml::to_string(&configs).expect("parse api info struct to string"))?;
-    
+    fs::write(
+        "config.toml",
+        toml::to_string(&configs).expect("parse api info struct to string"),
+    )?;
+
     api_info.twitch_refresh_token = configs.twitch_refresh_token;
     api_info.twitch_access_token = configs.twitch_access_token;
 
@@ -283,4 +318,33 @@ pub async fn is_vip(
         }
         None => false,
     })
+}
+
+pub async fn run_ads(api_info: &ApiInfo) -> Result<i64, AdError> {
+    let http_client = Client::new();
+
+    let res = http_client
+        .post("https://api.twitch.tv/helix/channels/commercial")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "broadcaster_id": "143306668",
+            "length": "90",
+        }))
+        .send()
+        .await.map_err(AdError::RequestErr)?;
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        return Err(AdError::UnAuthorized)
+    }
+
+    if res.status() == StatusCode::TOO_MANY_REQUESTS {
+        return Err(AdError::TooManyRequests)
+    }
+
+    let res = res.json::<TwitchAd>().await.map_err(AdError::RequestErr)?;
+
+    println!("{:#?}", res);
+    
+    Ok(res.data[0].retry_after)
 }

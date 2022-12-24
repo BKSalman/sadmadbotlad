@@ -59,6 +59,7 @@ pub enum IrcChat {
     Warranty,
     PlaySpotify,
     StopSpotify,
+    Commercial,
     Test(String),
 }
 
@@ -350,6 +351,11 @@ pub async fn event_handler(
                             .send(Message::Text(to_irc_message(WARRANTY)))
                             .await?;
                     }
+                    IrcChat::Commercial => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message("Starting a 90 seconds commercial break")))
+                            .await?;
+                    },
                 },
             },
             Event::MpvEvent(mpv_event) => match mpv_event {

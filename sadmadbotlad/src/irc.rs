@@ -11,11 +11,13 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use tokio::{net::TcpStream, sync::mpsc::UnboundedSender};
+use tokio::{net::TcpStream, sync::mpsc::{UnboundedSender, UnboundedReceiver}};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub async fn irc_connect (
     front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    e_sender: UnboundedSender<Event>,
+    e_receiver: UnboundedReceiver<Event>
 ) -> eyre::Result<()> {
     println!("Starting IRC");
 
@@ -25,7 +27,6 @@ pub async fn irc_connect (
 
     let ws_receiver = Arc::new(tokio::sync::Mutex::new(ws_receiver));
 
-    let (e_sender, e_receiver) = tokio::sync::mpsc::unbounded_channel::<event_handler::Event>();
 
     let (song_sender, song_receiver) = tokio::sync::mpsc::channel::<SongRequest>(200);
 

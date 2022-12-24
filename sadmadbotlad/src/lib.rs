@@ -15,6 +15,7 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 pub mod commands;
+pub mod obs_websocket;
 
 pub fn install_eyre() -> eyre::Result<()> {
     let (_, eyre_hook) = color_eyre::config::HookBuilder::default().into_hooks();
@@ -51,6 +52,7 @@ pub struct ApiInfo {
     pub twitch_access_token: String,
     pub twitch_refresh_token: String,
     pub discord_token: String,
+    pub obs_server_password: String,
 }
 
 impl ApiInfo {

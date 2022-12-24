@@ -24,3 +24,4 @@ regex = "1.7.0"
 tokio-retry = "0.3.0"
 html-escape = "0.2.12"
 toml = "0.5.10"
+obws = { version = "0.10.0", features = ["events"] }

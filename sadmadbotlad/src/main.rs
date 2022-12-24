@@ -1,7 +1,8 @@
 // TODO: queue in front end
 use eyre::WrapErr;
-use sadmadbotlad::FrontEndEvent;
-use tokio_retry::{strategy::ExponentialBackoff, Retry};
+use sadmadbotlad::event_handler;
+use sadmadbotlad::{FrontEndEvent, obs_websocket::obs_websocket};
+// use tokio_retry::{strategy::ExponentialBackoff, Retry};
 
 use sadmadbotlad::{flatten, ws_server::ws_server};
 
@@ -11,12 +12,14 @@ use sadmadbotlad::{eventsub::eventsub, install_eyre, irc::irc_connect};
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
 
-    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
-        println!("Attempting...");
-        run()
-    })
-        .await
-        .with_context(|| "main:: running application")?;
+    // Retry::spawn(ExponentialBackoff::from_millis(100).take(2), || {
+    //     println!("Attempting...");
+    //     run()
+    // })
+    //     .await
+    //     .with_context(|| "main:: running application")?;
+
+    run().await?;
 
     Ok(())
 }
@@ -24,10 +27,13 @@ async fn main() -> Result<(), eyre::Report> {
 async fn run() -> Result<(), eyre::Report> {
     let (sender, _) = tokio::sync::broadcast::channel::<FrontEndEvent>(100);
 
+    let (e_sender, e_receiver) = tokio::sync::mpsc::unbounded_channel::<event_handler::Event>();
+
     tokio::try_join!(
         flatten(tokio::spawn(eventsub(sender.clone()))),
-        flatten(tokio::spawn(irc_connect(sender.clone()))),
-        flatten(tokio::spawn(ws_server(sender.clone()))),
+        flatten(tokio::spawn(irc_connect(sender.clone(), e_sender.clone(), e_receiver))),
+        flatten(tokio::spawn(ws_server(sender))),
+        flatten(tokio::spawn(obs_websocket(e_sender))),
         // TODO: get current spotify song every 20 secs
     )
     .wrap_err_with(|| "Run")?;

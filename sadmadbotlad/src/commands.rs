@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 struct SomeCommand {
     name: String,
     shorthand: String,
