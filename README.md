@@ -12,10 +12,10 @@ A personal twitch/discord bot that I incremently add features to depending on wh
     - getting current song
     - skipping
     - listing the queue
-    - Frontend 
-      - Stream alerts
-      - Song queue
-      - Activity feed
+- Frontend 
+  - Stream alerts
+  - Song queue
+  - Activity feed
 
 # Future features
 [todos issue](https://github.com/BKSalman/sadmadbotlad/issues/2)
