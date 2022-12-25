@@ -83,7 +83,7 @@ impl Component for Activity {
             <div class="event-list">
                 {
                     self.alerts.clone()
-                    .into_iter().map(|s| {
+                    .into_iter().rev().map(|s| {
                         let sc = s.clone();
                         let cbc = cb.clone();
                         match s.alert_type {
