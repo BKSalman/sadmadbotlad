@@ -204,7 +204,7 @@ pub async fn event_handler(
                         }
                     }
                     IrcChat::CurrentSongSpotify => {
-                        let cmd = Command::new("./current_spotify_song.sh").output()?;
+                        let cmd = Command::new("./scripts/current_spotify_song.sh").output()?;
                         let output = String::from_utf8(cmd.stdout)?;
 
                         ws_sender
@@ -215,7 +215,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::PlaySpotify => {
-                        if let Ok(_) = Command::new("./play_spotify.sh").spawn() {
+                        if let Ok(_) = Command::new("./scripts/play_spotify.sh").spawn() {
                             ws_sender
                                 .send(Message::Text(to_irc_message(String::from(
                                     "Started playing spotify",
@@ -226,7 +226,7 @@ pub async fn event_handler(
                         }
                     }
                     IrcChat::StopSpotify => {
-                        if let Err(e) = Command::new("./pause_spotify.sh").spawn() {
+                        if let Err(e) = Command::new("./scripts/pause_spotify.sh").spawn() {
                             println!("{e:?}");
                             continue;
                         }

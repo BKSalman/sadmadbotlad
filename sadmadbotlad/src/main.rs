@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use eyre::Context;
 use sadmadbotlad::{SrFrontEndEvent, Alert};
-// TODO: queue in front end
 use sadmadbotlad::{event_handler, ApiInfo, sr_ws_server::sr_ws_server};
 use sadmadbotlad::obs_websocket::obs_websocket;
 // use tokio_retry::{strategy::ExponentialBackoff, Retry};

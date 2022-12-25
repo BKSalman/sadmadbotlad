@@ -14,7 +14,10 @@ pub async fn obs_websocket(
     e_sender: UnboundedSender<EventHandler>,
     api_info: Arc<ApiInfo>,
 ) -> eyre::Result<()> {
-    let client = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await?;
+    let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await else {
+        println!("Could not connect to obs websocket");
+        return Ok(())
+    };
 
     let events = client.events()?;
     pin_mut!(events);
