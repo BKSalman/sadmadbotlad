@@ -10,11 +10,11 @@ use tokio::{
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::twitch::{get_title, set_title};
-use crate::{FrontEndEvent, ApiInfo};
 use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::{SongRequest, SongRequestSetup},
 };
+use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent};
 
 const RULES: &str = include_str!("../rules.txt");
 const WARRANTY: &str = include_str!("../warranty.txt");
@@ -80,7 +80,8 @@ pub async fn event_handler(
     mut recv: UnboundedReceiver<Event>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
-    front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    front_end_alert_sender: tokio::sync::broadcast::Sender<Alert>,
+    front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
     let sr_setup = Arc::new(tokio::sync::RwLock::new(SongRequestSetup::new()?));
@@ -88,12 +89,10 @@ pub async fn event_handler(
 
     irc_login(&mut ws_sender, &api_info).await?;
 
-    let fees = front_end_events_sender.clone();
-
     let sr_setupc = sr_setup.clone();
 
     let t_handle = tokio::spawn(async move {
-        front_end_receiver(fees, sr_setupc).await;
+        front_end_receiver(front_end_sr_sender, sr_setupc).await;
     });
 
     while let Some(event) = recv.recv().await {
@@ -218,7 +217,9 @@ pub async fn event_handler(
                     IrcChat::PlaySpotify => {
                         if let Ok(_) = Command::new("./play_spotify.sh").spawn() {
                             ws_sender
-                                .send(Message::Text(to_irc_message(String::from("Started playing spotify"))))
+                                .send(Message::Text(to_irc_message(String::from(
+                                    "Started playing spotify",
+                                ))))
                                 .await?;
                         } else {
                             println!("no script");
@@ -231,7 +232,9 @@ pub async fn event_handler(
                         }
 
                         ws_sender
-                            .send(Message::Text(to_irc_message(String::from("Stopped playing spotify"))))
+                            .send(Message::Text(to_irc_message(String::from(
+                                "Stopped playing spotify",
+                            ))))
                             .await?;
                     }
                     IrcChat::SetVolume(volume) => {
@@ -314,30 +317,42 @@ pub async fn event_handler(
                     }
                     IrcChat::Test(test) => match test.to_lowercase().as_str() {
                         "raid" => {
-                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
-                                from: String::from("lmao"),
+                            if let Err(e) = front_end_alert_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::Raid {
+                                    from: String::from("lmao"),
+                                },
                             }) {
                                 println!("frontend event failed:: {e:?}")
                             }
                         }
                         "follow" => {
-                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Follow {
-                                follower: String::from("lmao"),
+                            if let Err(e) = front_end_alert_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::Follow {
+                                    follower: String::from("lmao"),
+                                },
                             }) {
                                 println!("frontend event failed:: {e:?}")
                             }
                         }
                         "sub" => {
-                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Subscribe {
-                                subscriber: String::from("lmao"),
+                            if let Err(e) = front_end_alert_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::Subscribe {
+                                    subscriber: String::from("lmao"),
+                                },
                             }) {
                                 println!("frontend event failed:: {e:?}")
                             }
                         }
                         _ => {
                             println!("no args provided");
-                            if let Err(e) = front_end_events_sender.send(FrontEndEvent::Raid {
-                                from: String::from("lmao"),
+                            if let Err(e) = front_end_alert_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::Raid {
+                                    from: String::from("lmao"),
+                                },
                             }) {
                                 println!("frontend event failed:: {e:?}")
                             }
@@ -350,9 +365,11 @@ pub async fn event_handler(
                     }
                     IrcChat::Commercial => {
                         ws_sender
-                            .send(Message::Text(to_irc_message("Starting a 90 seconds commercial break")))
+                            .send(Message::Text(to_irc_message(
+                                "Starting a 90 seconds commercial break",
+                            )))
                             .await?;
-                    },
+                    }
                 },
             },
             Event::MpvEvent(mpv_event) => match mpv_event {
@@ -387,24 +404,21 @@ pub async fn event_handler(
 }
 
 async fn front_end_receiver(
-    front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    front_end_events_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     sr_setup: Arc<tokio::sync::RwLock<SongRequestSetup>>,
 ) {
     let mut front_end_events_receiver = front_end_events_sender.subscribe();
 
     while let Ok(msg) = front_end_events_receiver.recv().await {
         match msg {
-            FrontEndEvent::Follow { follower: _ } => {}
-            FrontEndEvent::Raid { from: _ } => {}
-            FrontEndEvent::Subscribe { subscriber: _ } => {}
-            FrontEndEvent::QueueRequest => {
+            SrFrontEndEvent::QueueRequest => {
                 front_end_events_sender
-                    .send(FrontEndEvent::SongsResponse(
+                    .send(SrFrontEndEvent::QueueResponse(
                         sr_setup.read().await.queue.clone(),
                     ))
                     .expect("song response");
             }
-            FrontEndEvent::SongsResponse(_) => {}
+            SrFrontEndEvent::QueueResponse(_) => {}
         }
     }
 }

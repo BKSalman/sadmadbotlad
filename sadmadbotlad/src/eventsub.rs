@@ -1,7 +1,7 @@
 use std::fs;
 use std::sync::Arc;
 
-use crate::FrontEndEvent;
+use crate::{AlertEventType, Alert};
 use crate::{discord::online_notification, ApiInfo};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
@@ -12,20 +12,20 @@ use tokio_retry::Retry;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
-    front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
     api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
-    Retry::spawn(ExponentialBackoff::from_millis(100).take(5), || {
-        read(front_end_event_sender.clone(), api_info.clone())
-    })
-    .await
-    .with_context(|| "eventsub:: read websocket")?;
+    // Retry::spawn(ExponentialBackoff::from_millis(100).take(2), || {
+        read(front_end_event_sender.clone(), api_info.clone()).await?;
+    // })
+    // .await
+    // .with_context(|| "eventsub:: read websocket")?;
 
     Ok(())
 }
 
 async fn read(
-    front_end_event_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
     api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
     let (socket, _) =
@@ -106,7 +106,7 @@ async fn read(
                                 .expect("follow username")
                                 .to_string();
                             write_recent("follow", &follower)?;
-                            front_end_event_sender.send(FrontEndEvent::Follow { follower })?;
+                            front_end_event_sender.send(Alert { new: true, alert_type: AlertEventType::Follow { follower } })?;
                         }
                         "channel.raid" => {
                             let from = json_lossy["payload"]["event"]["from_broadcaster_user_name"]
@@ -114,7 +114,7 @@ async fn read(
                                 .expect("from_broadcaster_user_name")
                                 .to_string();
                             write_recent("raid", &from)?;
-                            front_end_event_sender.send(FrontEndEvent::Raid { from })?;
+                            front_end_event_sender.send(Alert { new: true, alert_type: AlertEventType::Raid { from }})?;
                         }
                         "channel.subscribe" => {
                             let subscriber = json_lossy["payload"]["event"]["user_name"]
@@ -122,7 +122,7 @@ async fn read(
                                 .expect("user_name")
                                 .to_string();
                             write_recent("sub", &subscriber)?;
-                            front_end_event_sender.send(FrontEndEvent::Subscribe { subscriber })?;
+                            front_end_event_sender.send(Alert { new: true, alert_type: AlertEventType::Subscribe { subscriber } })?;
                         }
                         "channel.channel_points_custom_reward_redemption.add" => {
                             let redeemer = json_lossy["payload"]["event"]["user_name"]
@@ -168,8 +168,8 @@ async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("offline_eventsub:: unauthorized"));
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!("offline:: status: {} message: {}", res.status(), res.text().await?));
     }
 
     Ok(())
@@ -196,8 +196,8 @@ async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("online_eventsub:: unauthorized"));
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!("online:: status: {} message: {}", res.status(), res.text().await?));
     }
 
     Ok(())
@@ -224,8 +224,8 @@ async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("follow_eventsub:: unauthorized"));
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!("follow:: status: {} message: {}", res.status(), res.text().await?));
     }
 
     Ok(())
@@ -252,8 +252,8 @@ async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Re
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("raid_eventsub:: unauthorized"));
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!("raid:: status: {} message: {}", res.status(), res.text().await?));
     }
 
     Ok(())
@@ -280,8 +280,8 @@ async fn subscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyr
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("subscribe_eventsub:: unauthorized"));
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!("subscribe:: status: {} message: {}", res.status(), res.text().await?));
     }
 
     Ok(())
@@ -316,8 +316,8 @@ async fn rewards_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("subscribe_eventsub:: unauthorized"));
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!("rewards:: status: {} message: {}", res.status(), res.text().await?));
     }
 
     Ok(())

@@ -1,3 +1,4 @@
+use frontend::activity_feed::Activity;
 use frontend::alerts::Alerts;
 use frontend::songs::Songs;
 use yew::prelude::*;
@@ -7,6 +8,8 @@ use yew_router::prelude::*;
 enum Route {
     #[at("/alerts")]
     Alerts,
+    #[at("/activity")]
+    Activity,
     #[at("/")]
     Songs,
     #[not_found]
@@ -33,6 +36,7 @@ impl Component for App {
         let switch = move |routes: Route| match routes {
             Route::Alerts => html! { <Alerts /> },
             Route::Songs => html! { <Songs /> },
+            Route::Activity => html! { <Activity /> },
             Route::NotFound => html! { <h1>{ "404" }</h1> },
         };
 

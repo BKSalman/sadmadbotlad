@@ -10,15 +10,15 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use crate::Alert;
+use crate::SrFrontEndEvent;
 
-pub async fn ws_server (
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
+pub async fn sr_ws_server (
+    front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
 ) -> Result<(), eyre::Report> {
     println!("Starting WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, 4000);
+    let address = SocketAddrV4::new(ip_address, 3000);
     let listener = TcpListener::bind(address).await?;
 
     while let Ok((stream, _)) = listener.accept().await {
@@ -41,7 +41,7 @@ pub async fn ws_server (
 async fn accept_connection (
     peer: SocketAddr,
     stream: TcpStream,
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
+    front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
 ) {
     if let Err(e) = handle_connection(peer, stream, front_end_event_sender).await {
         match e {
@@ -56,7 +56,7 @@ async fn accept_connection (
 async fn handle_connection (
     peer: SocketAddr,
     stream: TcpStream,
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
+    front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
 ) -> Result<()> {
     let front_end_event_receiver = front_end_event_sender.subscribe();
 
@@ -94,8 +94,15 @@ async fn handle_connection (
             }
             Ok(Message::Text(msg)) => {
                 println!("text message: {msg} - from client {peer}");
-                let alert = serde_json::from_str::<Alert>(&msg).expect("alert");
-                front_end_event_sender.send(alert).expect("send alert");
+                match msg.as_str() {
+                    "songs" => {
+                        front_end_event_sender
+                            .send(SrFrontEndEvent::QueueRequest)
+                            .expect("request songs");
+                    }
+                    _ => {}
+                }
+                // ws_sender.lock().await.send(msg).await?;
             }
             Ok(Message::Pong(ping)) => {
                 println!("Pong {ping:?} - from client {peer}");
@@ -119,24 +126,31 @@ async fn handle_connection (
 }
 
 async fn handle_front_end_events (
-    mut front_end_event_receiver: tokio::sync::broadcast::Receiver<Alert>,
+    mut front_end_event_receiver: tokio::sync::broadcast::Receiver<SrFrontEndEvent>,
     ws_sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>>,
     _peer: SocketAddr,
 ) {
     while let Ok(msg) = front_end_event_receiver.recv().await {
         println!("Sending Ws:: {msg:?}");
-
-        let alert = serde_json::to_string(&msg).expect("alert");
-        
-        if let Err(e) = ws_sender
-            .lock()
-            .await
-            .send(Message::Text(alert))
-            .await
-        {
-                println!("{e}");
-                break;
+        match msg {
+            SrFrontEndEvent::QueueRequest => {}
+            SrFrontEndEvent::QueueResponse(queue) => {
+                let Ok(queue) = serde_json::to_string(&queue) else {
+                    return;
+                };
+                match ws_sender
+                    .lock()
+                    .await
+                    .send(Message::Text(format!("queue::{}", queue)))
+                    .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("WebSocket server:: {e}");
+                        break;
+                    }
+                }
+            }
         }
-
     }
 }

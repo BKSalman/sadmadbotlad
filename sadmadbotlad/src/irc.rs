@@ -4,7 +4,7 @@ use crate::{
     event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
-    ApiInfo, FrontEndEvent,
+    ApiInfo, SrFrontEndEvent, Alert,
 };
 use eyre::WrapErr;
 use futures_util::{
@@ -15,7 +15,8 @@ use tokio::{net::TcpStream, sync::mpsc::{UnboundedSender, UnboundedReceiver}};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub async fn irc_connect (
-    front_end_events_sender: tokio::sync::broadcast::Sender<FrontEndEvent>,
+    front_end_alerts_sender: tokio::sync::broadcast::Sender<Alert>,
+    front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     e_sender: UnboundedSender<Event>,
     e_receiver: UnboundedReceiver<Event>,
     api_info: Arc<ApiInfo>,
@@ -47,7 +48,8 @@ pub async fn irc_connect (
             e_receiver,
             ws_sender,
             ws_receiver,
-            front_end_events_sender,
+            front_end_alerts_sender,
+            front_end_sr_sender,
             api_info,
         ))),
     )

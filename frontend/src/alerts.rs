@@ -5,10 +5,10 @@ use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use yew::prelude::*;
 
+use crate::{AlertEventType, Alert};
+
 pub enum Msg {
-    Follow(String),
-    Raid(String),
-    Sub(String),
+    Event(Alert),
     Clear(()),
     Nothing,
 }
@@ -24,7 +24,7 @@ impl Component for Alerts {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        let ws = WebSocket::open("ws://localhost:3000").expect("Ws");
+        let ws = WebSocket::open("ws://localhost:4000").expect("Ws");
 
         let (_, ws_receiver) = ws.split();
 
@@ -40,19 +40,21 @@ impl Component for Alerts {
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::Follow(user) => {
-                self.alert = Some(String::from("follow"));
-                self.alert_msg = Some(format!("{user} followed 😎!"));
-                true
-            }
-            Msg::Raid(from) => {
-                self.alert = Some(String::from("raid"));
-                self.alert_msg = Some(format!("{from} raided 🦀!"));
-                true
-            }
-            Msg::Sub(subscriber) => {
-                self.alert = Some(String::from("sub"));
-                self.alert_msg = Some(format!("{subscriber} subscribed!"));
+            Msg::Event(alert) => {
+                match alert.alert_type {
+                    AlertEventType::Follow { follower } => {
+                        self.alert = Some(String::from("follow"));
+                        self.alert_msg = Some(format!("{follower} followed 😎!"));
+                    },
+                    AlertEventType::Raid { from } => {
+                        self.alert = Some(String::from("raid"));
+                        self.alert_msg = Some(format!("{from} raided 🦀!"));
+                    },
+                    AlertEventType::Subscribe { subscriber } => {
+                        self.alert = Some(String::from("sub"));
+                        self.alert_msg = Some(format!("{subscriber} subscribed!"));
+                    },
+                }
                 true
             }
             Msg::Clear(()) => {
@@ -96,24 +98,9 @@ async fn handle_alert(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
     if let Some(ws_msg) = ws_receiver.borrow_mut().next().await {
         match ws_msg {
             Ok(Message::Text(msg)) => {
+                let event = serde_json::from_str::<Alert>(&msg).expect("event");
                 console::log!("got {}", &msg);
-                let Some((event_type, arg)) = msg.split_once("::") else {
-                    return Msg::Nothing;
-                };
-                match event_type {
-                    "follow" => {
-                        return Msg::Follow(arg.to_string());
-                    }
-                    "raid" => {
-                        return Msg::Raid(arg.to_string());
-                    }
-                    "sub" => {
-                        return Msg::Sub(arg.to_string());
-                    }
-                    _ => {
-                        return Msg::Nothing;
-                    }
-                }
+                return Msg::Event(event);
             }
             Ok(msg) => {
                 console::log!(format!("{msg:?}"));

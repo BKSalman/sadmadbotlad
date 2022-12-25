@@ -6,16 +6,17 @@ use song_requests::Queue;
 use tokio::task::JoinHandle;
 use twitch::refresh_access_token;
 
+pub mod commands;
 pub mod discord;
 pub mod event_handler;
 pub mod eventsub;
 pub mod irc;
+pub mod obs_websocket;
 pub mod song_requests;
+pub mod sr_ws_server;
 pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
-pub mod commands;
-pub mod obs_websocket;
 
 pub fn install_eyre() -> eyre::Result<()> {
     let (_, eyre_hook) = color_eyre::config::HookBuilder::default().into_hooks();
@@ -28,19 +29,23 @@ pub fn install_eyre() -> eyre::Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum AlertEventType {
+    Follow { follower: String },
+    Raid { from: String },
+    Subscribe { subscriber: String },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Alert {
+    new: bool,
+    alert_type: AlertEventType,
+}
+
 #[derive(Debug, Clone)]
-pub enum FrontEndEvent {
-    Follow {
-        follower: String,
-    },
-    Raid {
-        from: String,
-    },
-    Subscribe {
-        subscriber: String,
-    },
+pub enum SrFrontEndEvent {
     QueueRequest,
-    SongsResponse(Queue),
+    QueueResponse(Queue),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -56,7 +61,7 @@ pub struct ApiInfo {
 }
 
 impl ApiInfo {
-    pub async fn new() -> Result<Self, eyre::Report> {
+    pub async fn new() -> eyre::Result<Self> {
         let Ok(mut config) = fs::File::open("config.toml") else {
             panic!("no config file");
         };
