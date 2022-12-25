@@ -46,9 +46,9 @@ impl Component for Alerts {
                         self.alert = Some(String::from("follow"));
                         self.alert_msg = Some(format!("{follower} followed 😎!"));
                     },
-                    AlertEventType::Raid { from } => {
+                    AlertEventType::Raid { from, viewers } => {
                         self.alert = Some(String::from("raid"));
-                        self.alert_msg = Some(format!("{from} raided 🦀!"));
+                        self.alert_msg = Some(format!("{from} raided with {viewers} viewers 🦀!"));
                     },
                     AlertEventType::Subscribe { subscriber } => {
                         self.alert = Some(String::from("sub"));

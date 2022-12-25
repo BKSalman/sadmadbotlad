@@ -90,24 +90,18 @@ impl Component for Activity {
                             AlertEventType::Follow { follower } => {
                                 html_nested! {
                                     <div class="event">
-                                        <div class="event-name">
-                                            <span>{"Event: Follow"}</span>
-                                        </div>
                                         <div class="event-args">
-                                            <span>{"User: "}</span> <span>{ follower }</span>
+                                            { format!("{follower} followed") }
                                         </div>
                                         <Icon class="replay-btn" onclick={move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}} icon_id={IconId::FontAwesomeSolidReply}/>
                                     </div>
                                 }
                             },
-                            AlertEventType::Raid { from } => {
+                            AlertEventType::Raid { from, viewers } => {
                                 html_nested! {
                                     <div class="event">
-                                        <div class="event-name">
-                                            <span>{"Event: Raid"}</span>
-                                        </div>
                                         <div class="event-args">
-                                            <span>{"From: "}</span> <span>{ from }</span>
+                                            { format!("{from} raided with {viewers} viewers") }
                                         </div>
                                         <Icon class="replay-btn" onclick={move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}} icon_id={IconId::FontAwesomeSolidReply}/>
                                     </div>
@@ -116,11 +110,8 @@ impl Component for Activity {
                             AlertEventType::Subscribe { subscriber } => {
                                 html_nested! {
                                     <div class="event">
-                                        <div class="event-name">
-                                            <span>{"Event: Subscribe"}</span>
-                                        </div>
                                         <div class="event-args">
-                                            <span>{"User: "}</span> <span>{ subscriber }</span>
+                                            { format!("{subscriber} subscribed") }
                                         </div>
                                         <Icon class="replay-btn" onclick={move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}} icon_id={IconId::FontAwesomeSolidReply}/>
                                     </div>

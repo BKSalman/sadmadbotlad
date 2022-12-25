@@ -321,6 +321,7 @@ pub async fn event_handler(
                                 new: true,
                                 alert_type: AlertEventType::Raid {
                                     from: String::from("lmao"),
+                                    viewers: 9999,
                                 },
                             }) {
                                 println!("frontend event failed:: {e:?}")
@@ -352,6 +353,7 @@ pub async fn event_handler(
                                 new: true,
                                 alert_type: AlertEventType::Raid {
                                     from: String::from("lmao"),
+                                    viewers: 9999,
                                 },
                             }) {
                                 println!("frontend event failed:: {e:?}")

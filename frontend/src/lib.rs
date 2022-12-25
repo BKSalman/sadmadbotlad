@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-pub mod alerts;
-pub mod songs;
-pub mod components;
 pub mod activity_feed;
+pub mod alerts;
+pub mod components;
+pub mod songs;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SongRequest {
@@ -31,15 +31,9 @@ pub enum Msg {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AlertEventType {
-    Follow {
-        follower: String,
-    },
-    Raid {
-        from: String,
-    },
-    Subscribe {
-        subscriber: String,
-    },
+    Follow { follower: String },
+    Raid { from: String, viewers: u64 },
+    Subscribe { subscriber: String },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,4 +41,3 @@ pub struct Alert {
     new: bool,
     alert_type: AlertEventType,
 }
-
