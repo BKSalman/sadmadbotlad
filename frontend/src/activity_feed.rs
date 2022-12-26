@@ -3,20 +3,16 @@ use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use wasm_bindgen_futures::spawn_local;
 use yew::{html::Scope, prelude::*};
-use yew_icons::{Icon, IconId};
 
-use crate::{AlertEventType, Alert};
+use crate::{
+    components::event::Event,
+    Alert, AlertEventType,
+};
 
 pub enum Msg {
     Event(Alert),
     ReplayEvent(Alert),
     Nothing,
-}
-
-pub enum Tier {
-    Tier1 = 1,
-    Tier2 = 2,
-    Tier3 = 3,
 }
 
 pub struct Activity {
@@ -59,13 +55,16 @@ impl Component for Activity {
                 let mut senderc = self.sender.clone();
                 spawn_local(async move {
                     let alert = serde_json::to_string(&event).expect("alert");
-                    senderc.send(Message::Text(alert)).await.expect("send alert");
+                    senderc
+                        .send(Message::Text(alert))
+                        .await
+                        .expect("send alert");
                 });
                 true
             }
             Msg::Event(mut alert) => {
                 if !alert.new {
-                    return false
+                    return false;
                 }
 
                 alert.new = false;
@@ -85,36 +84,55 @@ impl Component for Activity {
                     self.alerts.clone()
                     .into_iter().rev().map(|s| {
                         let sc = s.clone();
-                        let cbc = cb.clone();
+                        let on_click = {
+                            let cbc = cb.clone();
+                            move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}
+                        };
                         match s.alert_type {
                             AlertEventType::Follow { follower } => {
-                                html_nested! {
-                                    <div class="event">
-                                        <div class="event-args">
-                                            { format!("{follower} followed") }
-                                        </div>
-                                        <Icon class="replay-btn" onclick={move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}} icon_id={IconId::FontAwesomeSolidReply}/>
-                                    </div>
+                                html! {
+                                    < Event
+                                        text={format!("{follower} followed")}
+                                        on_click={on_click}
+                                    />
                                 }
                             },
                             AlertEventType::Raid { from, viewers } => {
-                                html_nested! {
-                                    <div class="event">
-                                        <div class="event-args">
-                                            { format!("{from} raided with {viewers} viewers") }
-                                        </div>
-                                        <Icon class="replay-btn" onclick={move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}} icon_id={IconId::FontAwesomeSolidReply}/>
-                                    </div>
+                                html! {
+                                    < Event
+                                        text={format!("{from} raided with {viewers} viewers")}
+                                        on_click={on_click}
+                                    />
                                 }
                             },
-                            AlertEventType::Subscribe { subscriber } => {
-                                html_nested! {
-                                    <div class="event">
-                                        <div class="event-args">
-                                            { format!("{subscriber} subscribed") }
-                                        </div>
-                                        <Icon class="replay-btn" onclick={move |_| {cbc.emit(Msg::ReplayEvent(sc.clone()))}} icon_id={IconId::FontAwesomeSolidReply}/>
-                                    </div>
+                            AlertEventType::Subscribe { subscriber, tier } => {
+                                html! {
+                                    < Event
+                                        text={format!("{subscriber} subscribed tier {tier}")}
+                                        on_click={on_click}
+                                    />
+                                }
+                            },
+                            AlertEventType::GiftSub { gifter, total, tier } => {
+                                html! {
+                                    < Event
+                                        text={format!("{gifter} gifted {total} tier {tier} subs")}
+                                        on_click={on_click}
+                                    />
+                                }
+                            },
+                            AlertEventType::ReSubscribe { subscriber, tier, subscribed_for: _, streak } => {
+                                html! {
+                                    < Event
+                                        text={
+                                                if streak > 1 {
+                                                    format!("{subscriber} resubscribed {streak} months streak")
+                                                } else {
+                                                    format!("{subscriber} resubscribed tier {tier}")
+                                                }
+                                            }
+                                        on_click={on_click}
+                                    />
                                 }
                             },
                         }

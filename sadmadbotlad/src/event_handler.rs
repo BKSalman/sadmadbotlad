@@ -342,6 +342,32 @@ pub async fn event_handler(
                                 new: true,
                                 alert_type: AlertEventType::Subscribe {
                                     subscriber: String::from("lmao"),
+                                    tier: String::from("3"),
+                                },
+                            }) {
+                                println!("frontend event failed:: {e:?}")
+                            }
+                        }
+                        "resub" => {
+                            if let Err(e) = front_end_alert_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::ReSubscribe {
+                                    subscriber: String::from("lmao"),
+                                    tier: String::from("3"),
+                                    subscribed_for: String::from("4"),
+                                    streak: 2,
+                                },
+                            }) {
+                                println!("frontend event failed:: {e:?}")
+                            }
+                        }
+                        "giftsub" => {
+                            if let Err(e) = front_end_alert_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::GiftSub {
+                                    gifter: String::from("lmao"),
+                                    total: 9999,
+                                    tier: String::from("3"),
                                 },
                             }) {
                                 println!("frontend event failed:: {e:?}")

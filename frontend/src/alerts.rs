@@ -5,10 +5,10 @@ use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use yew::prelude::*;
 
-use crate::{AlertEventType, Alert};
+use crate::{components::alert::Alert, AlertEventType, Alert as AlertEnum};
 
 pub enum Msg {
-    Event(Alert),
+    Event(AlertEnum),
     Clear(()),
     Nothing,
 }
@@ -50,9 +50,21 @@ impl Component for Alerts {
                         self.alert = Some(String::from("raid"));
                         self.alert_msg = Some(format!("{from} raided with {viewers} viewers 🦀!"));
                     },
-                    AlertEventType::Subscribe { subscriber } => {
+                    AlertEventType::Subscribe { subscriber, tier } => {
                         self.alert = Some(String::from("sub"));
-                        self.alert_msg = Some(format!("{subscriber} subscribed!"));
+                        self.alert_msg = Some(format!("{subscriber} subscribed with tier {tier}!"));
+                    },
+                    AlertEventType::GiftSub { gifter, total, tier } => {
+                        self.alert = Some(String::from("sub"));
+                        self.alert_msg = Some(format!("{gifter} gifted {total} tier {tier} subs!"));
+                    },
+                    AlertEventType::ReSubscribe { subscriber, tier, subscribed_for: _, streak } => {
+                        self.alert = Some(String::from("sub"));
+                        if streak > 1 {
+                            self.alert_msg = Some(format!("{subscriber} resubscribed with a streak of {streak} months!!!"));
+                            return true;
+                        }
+                        self.alert_msg = Some(format!("{subscriber} resubscribed with tier {tier}!"));
                     },
                 }
                 true
@@ -71,10 +83,10 @@ impl Component for Alerts {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        let vid_cb = {
+        let onended = Callback::from({
             let ctxc = ctx.link().clone();
             move |_event: Event| ctxc.send_message(Msg::Clear(()))
-        };
+        });
 
         let Some(alert) = &self.alert else {
             return html! {
@@ -84,12 +96,7 @@ impl Component for Alerts {
 
         let src = format!("assets/{}.webm", alert);
         html! {
-            <div class="flex">
-                <div class="vid">
-                    <video src={src} onended={vid_cb} autoplay=true/>
-                </div>
-                <p class="text">{ self.alert_msg.clone() }</p>
-            </div>
+            < Alert src={src} onended={onended} alert_msg={self.alert_msg.clone()}/>
         }
     }
 }
@@ -98,7 +105,7 @@ async fn handle_alert(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
     if let Some(ws_msg) = ws_receiver.borrow_mut().next().await {
         match ws_msg {
             Ok(Message::Text(msg)) => {
-                let event = serde_json::from_str::<Alert>(&msg).expect("event");
+                let event = serde_json::from_str::<AlertEnum>(&msg).expect("event");
                 console::log!("got {}", &msg);
                 return Msg::Event(event);
             }

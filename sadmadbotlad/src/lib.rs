@@ -31,9 +31,28 @@ pub fn install_eyre() -> eyre::Result<()> {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum AlertEventType {
-    Follow { follower: String },
-    Raid { from: String, viewers: u64 },
-    Subscribe { subscriber: String },
+    Follow {
+        follower: String,
+    },
+    Raid {
+        from: String,
+        viewers: u64,
+    },
+    Subscribe {
+        subscriber: String,
+        tier: String,
+    },
+    ReSubscribe {
+        subscriber: String,
+        tier: String,
+        subscribed_for: String,
+        streak: u64,
+    },
+    GiftSub {
+        gifter: String,
+        total: u64,
+        tier: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

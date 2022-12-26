@@ -86,6 +86,10 @@ async fn read(
 
                     subscribe_eventsub(&api_info, &session_id).await?;
 
+                    resubscribe_eventsub(&api_info, &session_id).await?;
+
+                    giftsub_eventsub(&api_info, &session_id).await?;
+
                     rewards_eventsub(&api_info, &session_id).await?;
 
                     println!("Subscribed to eventsubs");
@@ -132,9 +136,73 @@ async fn read(
                                 .expect("user_name")
                                 .to_string();
                             write_recent("sub", &subscriber)?;
+
+                            let tier = json_lossy["payload"]["event"]["tier"]
+                                .as_str()
+                                .expect("tier")
+                                .to_string();
+
+                            write_recent("sub", &subscriber)?;
                             front_end_event_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Subscribe { subscriber },
+                                alert_type: AlertEventType::Subscribe { subscriber, tier },
+                            })?;
+                        }
+                        "channel.subscription.message" => {
+                            let subscriber = json_lossy["payload"]["event"]["user_name"]
+                                .as_str()
+                                .expect("user_name")
+                                .to_string();
+                            write_recent("sub", &subscriber)?;
+
+                            let tier = json_lossy["payload"]["event"]["tier"]
+                                .as_str()
+                                .expect("tier")
+                                .to_string();
+
+                            let subscribed_for = json_lossy["payload"]["event"]
+                                ["cumulative_months"]
+                                .as_str()
+                                .expect("cumulative_months")
+                                .to_string();
+
+                            let streak = json_lossy["payload"]["event"]["streak_months"]
+                                .as_u64()
+                                .expect("streak_months");
+
+                            write_recent("sub", &subscriber)?;
+                            front_end_event_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::ReSubscribe {
+                                    subscriber,
+                                    tier,
+                                    subscribed_for,
+                                    streak,
+                                },
+                            })?;
+                        }
+                        "channel.subscription.gift" => {
+                            let gifter = json_lossy["payload"]["event"]["user_name"]
+                                .as_str()
+                                .expect("user_name")
+                                .to_string();
+
+                            let tier = json_lossy["payload"]["event"]["tier"]
+                                .as_str()
+                                .expect("tier")
+                                .to_string();
+
+                            let total = json_lossy["payload"]["event"]["total"]
+                                .as_u64()
+                                .expect("total");
+
+                            front_end_event_sender.send(Alert {
+                                new: true,
+                                alert_type: AlertEventType::GiftSub {
+                                    gifter,
+                                    total,
+                                    tier,
+                                },
                             })?;
                         }
                         "channel.channel_points_custom_reward_redemption.add" => {
@@ -320,11 +388,67 @@ async fn subscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyr
     Ok(())
 }
 
-fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), eyre::Report> {
-    fs::write(
-        format!("recent_{}.txt", sub_type),
-        format!("recent {}: {}", sub_type, arg.into()),
-    )?;
+async fn resubscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    let res = http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "type": "channel.subscription.message",
+            "version": "1",
+            "condition": {
+                "broadcaster_user_id": "143306668" //110644052
+            },
+            "transport": {
+                "method": "websocket",
+                "session_id": session
+            }
+        }))
+        .send()
+        .await?;
+
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!(
+            "resubscribe:: status: {} message: {}",
+            res.status(),
+            res.text().await?
+        ));
+    }
+
+    Ok(())
+}
+
+async fn giftsub_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    let res = http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "type": "channel.subscription.gift",
+            "version": "1",
+            "condition": {
+                "broadcaster_user_id": "143306668" //110644052
+            },
+            "transport": {
+                "method": "websocket",
+                "session_id": session
+            }
+        }))
+        .send()
+        .await?;
+
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!(
+            "resubscribe:: status: {} message: {}",
+            res.status(),
+            res.text().await?
+        ));
+    }
+
     Ok(())
 }
 
@@ -359,3 +483,12 @@ async fn rewards_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
 
     Ok(())
 }
+
+fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), eyre::Report> {
+    fs::write(
+        format!("recents/recent_{}.txt", sub_type),
+        format!("recent {}: {}", sub_type, arg.into()),
+    )?;
+    Ok(())
+}
+
