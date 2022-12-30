@@ -1,4 +1,4 @@
-use std::{fs, io::Read, fmt};
+use std::{fmt, fs};
 
 use eyre::Context;
 use reqwest::{Client, StatusCode};
@@ -12,7 +12,7 @@ use crate::ApiInfo;
 pub enum AdError {
     TooManyRequests,
     UnAuthorized,
-    RequestErr(reqwest::Error)
+    RequestErr(reqwest::Error),
 }
 
 impl fmt::Display for AdError {
@@ -214,7 +214,7 @@ pub async fn get_title(api_info: &ApiInfo) -> Result<String, eyre::Report> {
         .await?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("get_title:: Unauthorized"))
+        return Err(eyre::eyre!("get_title:: Unauthorized"));
     }
 
     let res = res.json::<Value>().await?;
@@ -243,13 +243,7 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
 
     let res = res.json::<Value>().await?;
 
-    let mut config_str = String::new();
-
-    let mut config_file = fs::File::open("config.toml").wrap_err_with(|| "no config file")?;
-
-    config_file
-        .read_to_string(&mut config_str)
-        .wrap_err_with(|| "couldn't read config file")?;
+    let config_str = fs::read_to_string("config.toml").wrap_err_with(|| "no config file")?;
 
     let mut configs =
         toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
@@ -264,6 +258,49 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
 
     api_info.twitch_refresh_token = configs.twitch_refresh_token;
     api_info.twitch_access_token = configs.twitch_access_token;
+
+    Ok(())
+}
+
+pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> {
+    let config_str = fs::read_to_string("config.toml").wrap_err_with(|| "no config file")?;
+
+    let mut configs =
+        toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
+
+    let http_client = Client::new();
+
+    let res = http_client
+        .post("https://id.twitch.tv/oauth2/token")
+        .form(&json!({
+            "client_id": configs.client_id,
+            "client_secret": configs.client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": "https://localhost:4000/",
+        }))
+        .send()
+        .await?;
+
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "get access token:: {}::{}",
+            res.status(),
+            res.text().await?
+        ));
+    }
+
+    let res = res.json::<Value>().await?;
+
+    println!("{:#?}\r", res["scope"].as_array().unwrap());
+
+    configs.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+    configs.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
+
+    fs::write(
+        "config.toml",
+        toml::to_string(&configs).expect("parse api info struct to string"),
+    )?;
 
     Ok(())
 }
@@ -332,19 +369,20 @@ pub async fn run_ads(api_info: &ApiInfo) -> Result<i64, AdError> {
             "length": "90",
         }))
         .send()
-        .await.map_err(AdError::RequestErr)?;
+        .await
+        .map_err(AdError::RequestErr)?;
 
     if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(AdError::UnAuthorized)
+        return Err(AdError::UnAuthorized);
     }
 
     if res.status() == StatusCode::TOO_MANY_REQUESTS {
-        return Err(AdError::TooManyRequests)
+        return Err(AdError::TooManyRequests);
     }
 
     let res = res.json::<TwitchAd>().await.map_err(AdError::RequestErr)?;
 
     println!("{:#?}", res);
-    
+
     Ok(res.data[0].retry_after)
 }

@@ -1,7 +1,8 @@
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    sync::Arc, time::Duration,
+    sync::Arc,
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
@@ -12,10 +13,10 @@ use tokio_tungstenite::{
 
 use crate::SrFrontEndEvent;
 
-pub async fn sr_ws_server (
+pub async fn sr_ws_server(
     front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
 ) -> Result<(), eyre::Report> {
-    println!("Starting WebSocket Server");
+    println!("Starting Sr WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
     let address = SocketAddrV4::new(ip_address, 3000);
@@ -38,7 +39,7 @@ pub async fn sr_ws_server (
     Ok(())
 }
 
-async fn accept_connection (
+async fn accept_connection(
     peer: SocketAddr,
     stream: TcpStream,
     front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
@@ -53,7 +54,7 @@ async fn accept_connection (
     }
 }
 
-async fn handle_connection (
+async fn handle_connection(
     peer: SocketAddr,
     stream: TcpStream,
     front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
@@ -81,7 +82,12 @@ async fn handle_connection (
 
         loop {
             interval.tick().await;
-            ws_sendercc.lock().await.send(Message::Ping(vec![])).await.expect("send ping");
+            ws_sendercc
+                .lock()
+                .await
+                .send(Message::Ping(vec![]))
+                .await
+                .expect("send ping");
         }
     });
 
@@ -125,7 +131,7 @@ async fn handle_connection (
     Ok(())
 }
 
-async fn handle_front_end_events (
+async fn handle_front_end_events(
     mut front_end_event_receiver: tokio::sync::broadcast::Receiver<SrFrontEndEvent>,
     ws_sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>>,
     _peer: SocketAddr,

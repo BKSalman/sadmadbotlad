@@ -45,12 +45,16 @@ pub enum AlertEventType {
     ReSubscribe {
         subscriber: String,
         tier: String,
-        subscribed_for: String,
+        subscribed_for: u64,
         streak: u64,
     },
     GiftSub {
         gifter: String,
         total: u64,
+        tier: String,
+    },
+    Gifted {
+        gifted: String,
         tier: String,
     },
 }
@@ -106,4 +110,25 @@ pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T
         Ok(Err(err)) => Err(err),
         Err(e) => Err(e).wrap_err_with(|| "handling failed"),
     }
+}
+
+// lazy man's macros
+
+#[macro_export]
+macro_rules! map {
+    // map-like
+    ($($k:expr => $v:expr),* $(,)?) => {{
+        HashMap::from([$(($k, $v),)*])
+    }};
+    // set-like
+    ($($v:expr),* $(,)?) => {{
+        HashMap::from([$($v,)*])
+    }};
+}
+
+#[macro_export]
+macro_rules! string {
+    ($s: expr) => {{
+        String::from($s)
+    }};
 }

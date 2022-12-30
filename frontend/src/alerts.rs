@@ -66,6 +66,10 @@ impl Component for Alerts {
                         }
                         self.alert_msg = Some(format!("{subscriber} resubscribed with tier {tier}!"));
                     },
+                    AlertEventType::Gifted { gifted, tier } => {
+                        self.alert = Some(String::from("sub"));
+                        self.alert_msg = Some(format!("{gifted} got gifted a tier {tier} sub!"));
+                    },
                 }
                 true
             }

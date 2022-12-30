@@ -45,7 +45,7 @@ pub enum AlertEventType {
     ReSubscribe {
         subscriber: String,
         tier: String,
-        subscribed_for: String,
+        subscribed_for: u64,
         streak: u64,
     },
     GiftSub {
@@ -53,7 +53,12 @@ pub enum AlertEventType {
         total: u64,
         tier: String,
     },
+    Gifted {
+        gifted: String,
+        tier: String,
+    },
 }
+
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Alert {

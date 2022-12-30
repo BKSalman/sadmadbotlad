@@ -1,9 +1,11 @@
+use std::io::BufRead;
 use std::sync::Arc;
 
 use eyre::Context;
-use sadmadbotlad::{SrFrontEndEvent, Alert};
-use sadmadbotlad::{event_handler, ApiInfo, sr_ws_server::sr_ws_server};
 use sadmadbotlad::obs_websocket::obs_websocket;
+use sadmadbotlad::twitch::get_access_token_from_code;
+use sadmadbotlad::{event_handler, sr_ws_server::sr_ws_server, ApiInfo};
+use sadmadbotlad::{Alert, SrFrontEndEvent};
 // use tokio_retry::{strategy::ExponentialBackoff, Retry};
 
 use sadmadbotlad::{flatten, ws_server::ws_server};
@@ -21,7 +23,30 @@ async fn main() -> Result<(), eyre::Report> {
     //     .await
     //     .with_context(|| "main:: running application")?;
 
-    run().await?;
+    let mut args = std::env::args();
+
+    args.next();
+
+    match args.next() {
+        Some(arg) if arg == "-m" || arg == "--manual" => {
+            let auth_link = std::fs::read_to_string("auth_link.txt")?;
+            open::that(auth_link)?;
+
+            let mut code = String::new();
+            let stdin = std::io::stdin();
+            println!("Enter code:");
+            stdin.lock().read_line(&mut code).unwrap();
+
+            let code = code.trim();
+
+            get_access_token_from_code(code).await?;
+
+            run().await?;
+        }
+        _ => {
+            run().await?;
+        }
+    }
 
     Ok(())
 }
@@ -35,7 +60,13 @@ async fn run() -> Result<(), eyre::Report> {
 
     tokio::try_join!(
         flatten(tokio::spawn(eventsub(sender.clone(), api_info.clone()))),
-        flatten(tokio::spawn(irc_connect(sender.clone(), sr_sender.clone(), e_sender.clone(), e_receiver, api_info.clone()))),
+        flatten(tokio::spawn(irc_connect(
+            sender.clone(),
+            sr_sender.clone(),
+            e_sender.clone(),
+            e_receiver,
+            api_info.clone()
+        ))),
         flatten(tokio::spawn(sr_ws_server(sr_sender))),
         flatten(tokio::spawn(ws_server(sender))),
         flatten(tokio::spawn(obs_websocket(e_sender, api_info))),

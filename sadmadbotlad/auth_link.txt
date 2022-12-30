@@ -1,0 +1,1 @@
+https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=dvhtawxumf8hdortg83w8oo2msvkdy&redirect_uri=https://localhost:4000/&scope=moderation%3Aread+chat%3Aedit+chat%3Aread+channel%3Amanage%3Abroadcast+channel%3Amanage%3Aredemptions+channel%3Aedit%3Acommercial+channel%3Aread%3Asubscriptions

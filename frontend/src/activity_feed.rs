@@ -135,6 +135,14 @@ impl Component for Activity {
                                     />
                                 }
                             },
+                            AlertEventType::Gifted { gifted, tier } => {
+                                html! {
+                                    < Event
+                                        text={format!("{gifted} got gifted a tier {tier} sub")}
+                                        on_click={on_click}
+                                    />
+                                }
+                            },
                         }
                     }).collect::<Html>()
                 }

@@ -135,18 +135,38 @@ async fn read(
                                 .as_str()
                                 .expect("user_name")
                                 .to_string();
+
+                            let tier = {
+                                let long_tier = json_lossy["payload"]["event"]["tier"]
+                                    .as_str()
+                                    .expect("tier");
+                                if long_tier != "Prime" {
+                                    long_tier.chars().nth(0).expect("first char").to_string()
+                                } else {
+                                    long_tier.to_string()
+                                }
+                            };
+
                             write_recent("sub", &subscriber)?;
 
-                            let tier = json_lossy["payload"]["event"]["tier"]
-                                .as_str()
-                                .expect("tier")
-                                .to_string();
-
-                            write_recent("sub", &subscriber)?;
-                            front_end_event_sender.send(Alert {
-                                new: true,
-                                alert_type: AlertEventType::Subscribe { subscriber, tier },
-                            })?;
+                            match json_lossy["payload"]["event"]["is_gift"].as_bool() {
+                                Some(false) => {
+                                    front_end_event_sender.send(Alert {
+                                        new: true,
+                                        alert_type: AlertEventType::Gifted {
+                                            gifted: subscriber,
+                                            tier,
+                                        },
+                                    })?;
+                                }
+                                Some(true) => {
+                                    front_end_event_sender.send(Alert {
+                                        new: true,
+                                        alert_type: AlertEventType::Subscribe { subscriber, tier },
+                                    })?;
+                                }
+                                None => {}
+                            }
                         }
                         "channel.subscription.message" => {
                             let subscriber = json_lossy["payload"]["event"]["user_name"]
@@ -155,30 +175,43 @@ async fn read(
                                 .to_string();
                             write_recent("sub", &subscriber)?;
 
-                            let tier = json_lossy["payload"]["event"]["tier"]
-                                .as_str()
-                                .expect("tier")
-                                .to_string();
+                            let tier = {
+                                let long_tier = json_lossy["payload"]["event"]["tier"]
+                                    .as_str()
+                                    .expect("tier");
+                                if long_tier != "Prime" {
+                                    long_tier.chars().nth(0).expect("first char").to_string()
+                                } else {
+                                    long_tier.to_string()
+                                }
+                            };
 
                             let subscribed_for = json_lossy["payload"]["event"]
                                 ["cumulative_months"]
-                                .as_str()
-                                .expect("cumulative_months")
-                                .to_string();
+                                .as_u64()
+                                .expect("cumulative_months");
 
                             let streak = json_lossy["payload"]["event"]["streak_months"]
                                 .as_u64()
                                 .expect("streak_months");
 
                             write_recent("sub", &subscriber)?;
+                            if subscribed_for > 1 {
+                                front_end_event_sender.send(Alert {
+                                    new: true,
+                                    alert_type: AlertEventType::ReSubscribe {
+                                        subscriber,
+                                        tier,
+                                        subscribed_for,
+                                        streak,
+                                    },
+                                })?;
+                                continue;
+                            }
+
                             front_end_event_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::ReSubscribe {
-                                    subscriber,
-                                    tier,
-                                    subscribed_for,
-                                    streak,
-                                },
+                                alert_type: AlertEventType::Subscribe { subscriber, tier },
                             })?;
                         }
                         "channel.subscription.gift" => {
@@ -187,10 +220,16 @@ async fn read(
                                 .expect("user_name")
                                 .to_string();
 
-                            let tier = json_lossy["payload"]["event"]["tier"]
-                                .as_str()
-                                .expect("tier")
-                                .to_string();
+                            let tier = {
+                                let long_tier = json_lossy["payload"]["event"]["tier"]
+                                    .as_str()
+                                    .expect("tier");
+                                if long_tier != "Prime" {
+                                    long_tier.chars().nth(0).expect("first char").to_string()
+                                } else {
+                                    long_tier.to_string()
+                                }
+                            };
 
                             let total = json_lossy["payload"]["event"]["total"]
                                 .as_u64()
@@ -491,4 +530,3 @@ fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), eyre::Repo
     )?;
     Ok(())
 }
-

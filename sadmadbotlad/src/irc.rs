@@ -1,20 +1,23 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
-    ApiInfo, SrFrontEndEvent, Alert,
+    Alert, ApiInfo, SrFrontEndEvent,
 };
 use eyre::WrapErr;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use tokio::{net::TcpStream, sync::mpsc::{UnboundedSender, UnboundedReceiver}};
+use tokio::{
+    net::TcpStream,
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-pub async fn irc_connect (
+pub async fn irc_connect(
     front_end_alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     e_sender: UnboundedSender<Event>,
@@ -28,7 +31,6 @@ pub async fn irc_connect (
     let (ws_sender, ws_receiver) = socket.split();
 
     let ws_receiver = Arc::new(tokio::sync::Mutex::new(ws_receiver));
-
 
     let (song_sender, song_receiver) = tokio::sync::mpsc::channel::<SongRequest>(200);
 
@@ -89,6 +91,10 @@ async fn read(
 ) -> eyre::Result<()> {
     let mut locked_ws_receiver = ws_receiver.lock().await;
 
+    let event_senderc = event_sender.clone();
+
+    let vote_counter = Arc::new(tokio::sync::RwLock::new(0));
+
     while let Some(msg) = locked_ws_receiver.next().await {
         match msg {
             Ok(Message::Ping(ping)) => {
@@ -102,7 +108,7 @@ async fn read(
                 if !parsed_msg.starts_with('!') {
                     continue;
                 }
-                
+
                 let tags = msg.split_once(':').expect("no chat tags").0;
                 // ^have a proper structure for it later, and methods to extract is_mod and is_vip and shit
                 let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
@@ -128,13 +134,39 @@ async fn read(
                         )))))?;
                     }
                     "!skip" => {
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
                         }
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))?
+                    }
+                    "!voteskip" => {
+                        // TODO: figure out how to make every vote reset the timer (timeout??)
+
+                        let counterc = vote_counter.clone();
+
+                        if *vote_counter.read().await == 0 {
+                            tokio::spawn(async move {
+                                tokio::time::sleep(Duration::from_secs(30)).await;
+                                *counterc.write().await = 0;
+                                println!("reset counter");
+                            });
+                        }
+
+                        *vote_counter.write().await += 1;
+
+                        println!("{}", *vote_counter.read().await);
+
+                        if *vote_counter.read().await >= 5 {
+                            *vote_counter.write().await = 0;
+                            event_senderc
+                                .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))
+                                .expect("skip");
+                        }
                     }
                     "!queue" | "!q" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Queue)))?
@@ -153,7 +185,9 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -165,7 +199,9 @@ async fn read(
                             continue;
                         };
 
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -176,7 +212,9 @@ async fn read(
                     }
                     "!play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
                     "!playspotify" | "!playsp" => {
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -184,11 +222,11 @@ async fn read(
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::PlaySpotify)))?
                     }
-                    "!stop" => {
-                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?
-                    }
+                    "!stop" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?,
                     "!stopspotify" | "!stopsp" => {
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -197,16 +235,16 @@ async fn read(
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::StopSpotify)))?
                     }
                     "!قوانين" => {
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
                         }
 
-                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(
-                            IrcChat::Rules,
-                        )))?
-                    },
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Rules)))?
+                    }
                     "!title" => {
                         if args.is_empty() {
                             event_sender
@@ -214,7 +252,9 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -225,19 +265,20 @@ async fn read(
                         ))))?;
                     }
                     "!warranty" => {
-                        event_sender
-                            .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Warranty)))?;
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Warranty)))?;
                         continue;
                     }
                     "!test" => {
-                        if !tags.contains("mod=1") && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.contains("mod=1")
+                            && parsed_sender.to_lowercase() != "sadmadladsalman"
+                        {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
                         }
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Test(
-                            args.to_string()
+                            args.to_string(),
                         ))))?;
                     }
                     _ => {}
@@ -269,7 +310,7 @@ fn parse_message(msg: &str) -> String {
 
 fn parse_sender(msg: &str) -> String {
     let first = &msg.trim()[(&msg[1..]).find(':').unwrap() + 1..];
-    
+
     first[1..first.find('!').unwrap()].to_string()
 }
 

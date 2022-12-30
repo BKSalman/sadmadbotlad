@@ -167,25 +167,6 @@ pub async fn event_handler(
                                 "Check the queue at: https://f5rfm.bksalman.com",
                             )))
                             .await?;
-
-                        // let mut message = String::new();
-                        // for (s, i) in sr_setup.read().await.queue.queue.iter().zip(1..=20) {
-                        //     if let Some(song) = s {
-                        //         message
-                        //             .push_str(&format!(" {i}- {} :: by {}", song.url, song.user,));
-                        //     }
-                        // }
-                        // if message.chars().count() <= 0 {
-                        //     ws_sender
-                        //         .send(Message::Text(to_irc_message(
-                        //             "No songs in queue, try !currentsong",
-                        //         )))
-                        //         .await?;
-                        //     continue;
-                        // }
-                        // ws_sender
-                        //     .send(Message::Text(to_irc_message(message)))
-                        //     .await?;
                     }
                     IrcChat::CurrentSong => {
                         if let Some(current_song) =
@@ -264,7 +245,9 @@ pub async fn event_handler(
                         }
 
                         ws_sender
-                            .send(Message::Text(to_irc_message("Paused")))
+                            .send(Message::Text(to_irc_message(
+                                "Stopped playing, !play to resume",
+                            )))
                             .await?;
                     }
                     IrcChat::Play => {
@@ -354,7 +337,7 @@ pub async fn event_handler(
                                 alert_type: AlertEventType::ReSubscribe {
                                     subscriber: String::from("lmao"),
                                     tier: String::from("3"),
-                                    subscribed_for: String::from("4"),
+                                    subscribed_for: 4,
                                     streak: 2,
                                 },
                             }) {
