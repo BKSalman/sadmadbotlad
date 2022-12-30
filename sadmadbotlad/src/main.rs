@@ -40,14 +40,11 @@ async fn main() -> Result<(), eyre::Report> {
             let code = code.trim();
 
             get_access_token_from_code(code).await?;
-
-            run().await?;
         }
-        _ => {
-            run().await?;
-        }
+        _ => {}
     }
-
+    
+    run().await?;
     Ok(())
 }
 
