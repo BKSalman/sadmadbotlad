@@ -16,9 +16,9 @@ use sadmadbotlad::{eventsub::eventsub, install_eyre, irc::irc_connect};
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
 
-    let mut args = std::env::args();
+    let args = std::env::args();
 
-    while let Some(arg) = args.next() {
+    for arg in args {
         match arg.as_str() {
             "-m" | "--manual" => {
                 let auth_link = std::fs::read_to_string("auth_link.txt")?;
