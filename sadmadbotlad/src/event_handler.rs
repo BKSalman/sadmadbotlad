@@ -77,6 +77,7 @@ pub enum MpvEvent {
     Error(i32),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn event_handler(
     song_sender: Sender<SongRequest>,
     mpv: Arc<Mpv>,

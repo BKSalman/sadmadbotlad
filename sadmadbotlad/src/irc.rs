@@ -290,6 +290,7 @@ async fn read(
                 }
             }
             Ok(Message::Text(msg)) => {
+                #[allow(clippy::if_same_then_else)]
                 if msg.contains("PING") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
                 } else if msg.contains("RECONNECT") {
