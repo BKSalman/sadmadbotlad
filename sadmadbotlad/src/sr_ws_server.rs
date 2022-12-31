@@ -18,9 +18,7 @@ pub async fn sr_ws_server(
     let listener = TcpListener::bind(address).await?;
 
     while let Ok((stream, _)) = listener.accept().await {
-        let peer = stream
-            .peer_addr()
-            .expect("connected streams should have a peer address");
+        let peer = stream.peer_addr()?;
 
         // println!("Songs Peer address: {}", peer);
 
@@ -70,7 +68,6 @@ async fn handle_connection(
                 let Ok(queue) = serde_json::to_string(&*queue.read().await) else {
                     panic!("Could not parse queue to string");
                 };
-                println!("{queue}");
                 match ws_stream.send(Message::Text(queue)).await {
                     Ok(_) => {
                         break;

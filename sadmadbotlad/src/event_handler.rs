@@ -150,15 +150,6 @@ pub async fn event_handler(
                         }
 
                         ws_sender.send(Message::Text(message)).await?;
-
-                        // let e_str = e.to_string();
-
-                        // let error = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
-
-                        // std::io::Error::new(std::io::ErrorKind::Other, format!(
-                        //     "MpvEvent:: {e}:{}",
-                        //     libmpv_sys::mpv_error_str(error.parse::<i32>().unwrap())
-                        // ))
                     }
                     IrcChat::Invalid(e) => {
                         ws_sender.send(Message::Text(to_irc_message(e))).await?;

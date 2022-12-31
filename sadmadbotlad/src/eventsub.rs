@@ -7,19 +7,13 @@ use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
-// use tokio_retry::strategy::ExponentialBackoff;
-// use tokio_retry::Retry;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
     front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
     api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
-    // Retry::spawn(ExponentialBackoff::from_millis(100).take(2), || {
     read(front_end_event_sender.clone(), api_info.clone()).await?;
-    // })
-    // .await
-    // .with_context(|| "eventsub:: read websocket")?;
 
     Ok(())
 }
