@@ -134,17 +134,17 @@ async fn read(
                                 let long_tier = json_lossy["payload"]["event"]["tier"]
                                     .as_str()
                                     .expect("tier");
-                                if long_tier != "Prime" {
-                                    long_tier.chars().next().expect("first char").to_string()
-                                } else {
+                                if long_tier == "Prime" {
                                     long_tier.to_string()
+                                } else {
+                                    long_tier.chars().next().expect("first char").to_string()
                                 }
                             };
 
                             write_recent("sub", &subscriber)?;
 
                             match json_lossy["payload"]["event"]["is_gift"].as_bool() {
-                                Some(false) => {
+                                Some(true) => {
                                     front_end_event_sender.send(Alert {
                                         new: true,
                                         alert_type: AlertEventType::Gifted {
@@ -153,11 +153,13 @@ async fn read(
                                         },
                                     })?;
                                 }
-                                Some(true) => {
-                                    front_end_event_sender.send(Alert {
-                                        new: true,
-                                        alert_type: AlertEventType::Subscribe { subscriber, tier },
-                                    })?;
+                                Some(false) => {
+                                    let alert = AlertEventType::Subscribe { subscriber, tier };
+                                    println!("Sub event:: {alert:#?}");
+                                    // front_end_event_sender.send(Alert {
+                                    //     new: true,
+                                    //     alert_type: AlertEventType::Subscribe { subscriber, tier },
+                                    // })?;
                                 }
                                 None => {}
                             }
@@ -169,16 +171,13 @@ async fn read(
                                 .to_string();
                             write_recent("sub", &subscriber)?;
 
-                            let tier = {
-                                let long_tier = json_lossy["payload"]["event"]["tier"]
-                                    .as_str()
-                                    .expect("tier");
-                                if long_tier != "Prime" {
-                                    long_tier.chars().next().expect("first char").to_string()
-                                } else {
-                                    long_tier.to_string()
-                                }
-                            };
+                            let tier = json_lossy["payload"]["event"]["tier"]
+                                .as_str()
+                                .expect("tier")
+                                .chars()
+                                .next()
+                                .expect("first char")
+                                .to_string();
 
                             let subscribed_for = json_lossy["payload"]["event"]
                                 ["cumulative_months"]
@@ -187,7 +186,7 @@ async fn read(
 
                             let streak = json_lossy["payload"]["event"]["streak_months"]
                                 .as_u64()
-                                .expect("streak_months");
+                                .expect("streak months");
 
                             write_recent("sub", &subscriber)?;
                             if subscribed_for > 1 {

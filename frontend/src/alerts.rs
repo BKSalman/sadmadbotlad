@@ -5,7 +5,7 @@ use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use yew::prelude::*;
 
-use crate::{components::alert::Alert, AlertEventType, Alert as AlertEnum};
+use crate::{components::alert::Alert, Alert as AlertEnum, AlertEventType};
 
 pub enum Msg {
     Event(AlertEnum),
@@ -45,36 +45,49 @@ impl Component for Alerts {
                     AlertEventType::Follow { follower } => {
                         self.alert = Some(String::from("follow"));
                         self.alert_msg = Some(format!("{follower} followed 😎!"));
-                    },
+                    }
                     AlertEventType::Raid { from, viewers } => {
                         self.alert = Some(String::from("raid"));
                         self.alert_msg = Some(format!("{from} raided with {viewers} viewers 🦀!"));
-                    },
+                    }
                     AlertEventType::Subscribe { subscriber, tier } => {
                         self.alert = Some(String::from("sub"));
                         self.alert_msg = Some(format!("{subscriber} subscribed with tier {tier}!"));
-                    },
-                    AlertEventType::GiftSub { gifter, total, tier } => {
+                    }
+                    AlertEventType::GiftSub {
+                        gifter,
+                        total,
+                        tier,
+                    } => {
                         self.alert = Some(String::from("sub"));
                         self.alert_msg = Some(format!("{gifter} gifted {total} tier {tier} subs!"));
-                    },
-                    AlertEventType::ReSubscribe { subscriber, tier, subscribed_for: _, streak } => {
+                    }
+                    AlertEventType::ReSubscribe {
+                        subscriber,
+                        tier,
+                        subscribed_for: _,
+                        streak,
+                    } => {
                         self.alert = Some(String::from("sub"));
                         if streak > 1 {
-                            self.alert_msg = Some(format!("{subscriber} resubscribed with a streak of {streak} months!!!"));
+                            self.alert_msg = Some(format!(
+                                "{subscriber} resubscribed with a streak of {streak} months!!!"
+                            ));
                             return true;
                         }
-                        self.alert_msg = Some(format!("{subscriber} resubscribed with tier {tier}!"));
-                    },
+                        self.alert_msg =
+                            Some(format!("{subscriber} resubscribed with tier {tier}!"));
+                    }
                     AlertEventType::Gifted { gifted, tier } => {
                         self.alert = Some(String::from("sub"));
                         self.alert_msg = Some(format!("{gifted} got gifted a tier {tier} sub!"));
-                    },
+                    }
                 }
                 true
             }
             Msg::Clear(()) => {
-                ctx.link().send_future(handle_alert(self.ws_receiver.clone()));
+                ctx.link()
+                    .send_future(handle_alert(self.ws_receiver.clone()));
                 self.alert = None;
                 self.alert_msg = None;
                 true

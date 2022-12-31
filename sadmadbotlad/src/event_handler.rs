@@ -392,16 +392,16 @@ pub async fn event_handler(
                 }
                 MpvEvent::Error(e) => {
                     queue.write().await.current_song = None;
-                    println!("{e}");
+                    println!("MPV Error:: {e}");
 
-                    let e_str = e.to_string();
+                    // let e_str = e.to_string();
 
-                    let e = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
+                    // let e = &e_str[e_str.find('(').unwrap() + 1..e_str.chars().count() - 1];
 
-                    println!(
-                        "MpvEvent:: {e}:{}",
-                        libmpv_sys::mpv_error_str(e.parse::<i32>().unwrap())
-                    );
+                    // println!(
+                    //     "MpvEvent:: {e}:{}",
+                    //     libmpv_sys::mpv_error_str(e.parse::<i32>().unwrap())
+                    // );
                 }
             },
         }

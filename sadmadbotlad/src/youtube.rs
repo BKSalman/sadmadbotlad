@@ -36,8 +36,12 @@ pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<Strin
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("video_title:: Unauthorized"));
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "video_title:: {}: {}",
+            res.status(),
+            res.text().await?
+        ));
     }
 
     let res = res.json::<Value>().await?;
