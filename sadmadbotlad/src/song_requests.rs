@@ -65,7 +65,7 @@ impl SrQueue {
         &mut self,
         irc_msg: &str,
         irc_sender: impl Into<String>,
-        song_sender: &Sender<SongRequest>,
+        song_sender: Sender<SongRequest>,
         api_info: Arc<ApiInfo>,
     ) -> Result<String, eyre::Report> {
         // request is a video title

@@ -1,27 +1,23 @@
 use std::fs;
-use std::sync::Arc;
 
 use crate::{discord::online_notification, ApiInfo};
-use crate::{Alert, AlertEventType};
+use crate::{Alert, AlertEventType, APP};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-pub async fn eventsub(
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
-    api_info: Arc<ApiInfo>,
-) -> Result<(), eyre::Report> {
-    read(front_end_event_sender.clone(), api_info.clone()).await?;
+pub async fn eventsub() -> Result<(), eyre::Report> {
+    read().await?;
 
     Ok(())
 }
 
-async fn read(
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
-    api_info: Arc<ApiInfo>,
-) -> Result<(), eyre::Report> {
+async fn read() -> Result<(), eyre::Report> {
+    let alerts_sender = APP.get().await.alerts_sender.clone();
+    let api_info = APP.get().await.api_info.clone();
+
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
             .await
@@ -104,7 +100,7 @@ async fn read(
                                 .expect("follow username")
                                 .to_string();
                             write_recent("follow", &follower)?;
-                            front_end_event_sender.send(Alert {
+                            alerts_sender.send(Alert {
                                 new: true,
                                 alert_type: AlertEventType::Follow { follower },
                             })?;
@@ -119,7 +115,7 @@ async fn read(
                                 .expect("viewers");
 
                             write_recent("raid", &from)?;
-                            front_end_event_sender.send(Alert {
+                            alerts_sender.send(Alert {
                                 new: true,
                                 alert_type: AlertEventType::Raid { from, viewers },
                             })?;
@@ -145,7 +141,7 @@ async fn read(
 
                             match json_lossy["payload"]["event"]["is_gift"].as_bool() {
                                 Some(true) => {
-                                    front_end_event_sender.send(Alert {
+                                    alerts_sender.send(Alert {
                                         new: true,
                                         alert_type: AlertEventType::Gifted {
                                             gifted: subscriber,
@@ -190,7 +186,7 @@ async fn read(
 
                             write_recent("sub", &subscriber)?;
                             if subscribed_for > 1 {
-                                front_end_event_sender.send(Alert {
+                                alerts_sender.send(Alert {
                                     new: true,
                                     alert_type: AlertEventType::ReSubscribe {
                                         subscriber,
@@ -202,7 +198,7 @@ async fn read(
                                 continue;
                             }
 
-                            front_end_event_sender.send(Alert {
+                            alerts_sender.send(Alert {
                                 new: true,
                                 alert_type: AlertEventType::Subscribe { subscriber, tier },
                             })?;
@@ -228,7 +224,7 @@ async fn read(
                                 .as_u64()
                                 .expect("total");
 
-                            front_end_event_sender.send(Alert {
+                            alerts_sender.send(Alert {
                                 new: true,
                                 alert_type: AlertEventType::GiftSub {
                                     gifter,

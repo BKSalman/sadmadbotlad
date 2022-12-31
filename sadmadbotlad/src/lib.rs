@@ -1,6 +1,9 @@
 use std::{fs, io::Read, sync::Arc};
 
+use async_once::AsyncOnce;
+use clap::{command, Parser};
 use eyre::WrapErr;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use song_requests::SrQueue;
 use tokio::task::JoinHandle;
@@ -18,7 +21,44 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
-pub static mut COMMAND_DELIMETER: &str = "!";
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Config {
+    #[arg(short, long, default_value_t = false)]
+    pub manual: bool,
+    #[arg(short, long, default_value_t = '!')]
+    pub cmd_delim: char,
+    #[arg(short, long, default_value_t = 3000)]
+    pub port: u16,
+}
+
+#[derive(Debug)]
+pub struct App {
+    pub config: Config,
+    pub api_info: Arc<ApiInfo>,
+    pub alerts_sender: tokio::sync::broadcast::Sender<Alert>,
+    pub sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+}
+
+impl App {
+    pub async fn new() -> Self {
+        let (alerts_sender, _) = tokio::sync::broadcast::channel::<Alert>(100);
+        let (sr_sender, _) = tokio::sync::broadcast::channel::<SrFrontEndEvent>(100);
+
+        let api_info = Arc::new(ApiInfo::new().await.expect("Api info failed"));
+
+        Self {
+            config: Config::parse(),
+            api_info,
+            alerts_sender,
+            sr_sender,
+        }
+    }
+}
+
+lazy_static! {
+    pub static ref APP: AsyncOnce<App> = AsyncOnce::new(async { App::new().await });
+}
 
 pub fn install_eyre() -> eyre::Result<()> {
     let (_, eyre_hook) = color_eyre::config::HookBuilder::default().into_hooks();
@@ -133,14 +173,4 @@ macro_rules! string {
     ($s: expr) => {{
         String::from($s)
     }};
-}
-
-pub fn get_cmd_delim() -> &'static str {
-    unsafe { COMMAND_DELIMETER }
-}
-
-pub fn set_cmd_delim(delim: &'static str) {
-    unsafe {
-        COMMAND_DELIMETER = delim;
-    }
 }

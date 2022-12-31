@@ -2,9 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
-    flatten, get_cmd_delim,
+    flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
-    Alert, ApiInfo, SrFrontEndEvent,
+    ApiInfo, APP,
 };
 use eyre::WrapErr;
 use futures_util::{
@@ -18,13 +18,14 @@ use tokio::{
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub async fn irc_connect(
-    front_end_alerts_sender: tokio::sync::broadcast::Sender<Alert>,
-    front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     e_sender: UnboundedSender<Event>,
     e_receiver: UnboundedReceiver<Event>,
-    api_info: Arc<ApiInfo>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
+
+    let alerts_sender = APP.get().await.alerts_sender.clone();
+
+    let sr_sender = APP.get().await.sr_sender.clone();
 
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
@@ -50,9 +51,8 @@ pub async fn irc_connect(
             e_receiver,
             ws_sender,
             ws_receiver,
-            front_end_alerts_sender,
-            front_end_sr_sender,
-            api_info,
+            alerts_sender,
+            sr_sender,
         ))),
     )
     .wrap_err_with(|| "irc")?;
@@ -105,7 +105,7 @@ async fn read(
                 let parsed_sender = parse_sender(&msg);
                 let parsed_msg = parse_message(&msg);
 
-                if !parsed_msg.starts_with(get_cmd_delim()) {
+                if !parsed_msg.starts_with(APP.get().await.config.cmd_delim) {
                     continue;
                 }
 

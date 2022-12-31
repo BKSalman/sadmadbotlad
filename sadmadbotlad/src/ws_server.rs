@@ -1,7 +1,8 @@
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    sync::Arc, time::Duration,
+    sync::Arc,
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
@@ -10,11 +11,9 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use crate::Alert;
+use crate::{Alert, APP};
 
-pub async fn ws_server (
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
-) -> Result<(), eyre::Report> {
+pub async fn ws_server() -> Result<(), eyre::Report> {
     println!("Starting WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
@@ -28,22 +27,14 @@ pub async fn ws_server (
 
         println!("Peer address: {}", peer);
 
-        tokio::spawn(accept_connection(
-            peer,
-            stream,
-            front_end_event_sender.clone(),
-        ));
+        tokio::spawn(accept_connection(peer, stream));
     }
 
     Ok(())
 }
 
-async fn accept_connection (
-    peer: SocketAddr,
-    stream: TcpStream,
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
-) {
-    if let Err(e) = handle_connection(peer, stream, front_end_event_sender).await {
+async fn accept_connection(peer: SocketAddr, stream: TcpStream) {
+    if let Err(e) = handle_connection(peer, stream).await {
         match e {
             tokio_tungstenite::tungstenite::Error::ConnectionClosed
             | tokio_tungstenite::tungstenite::Error::Protocol(_)
@@ -53,12 +44,10 @@ async fn accept_connection (
     }
 }
 
-async fn handle_connection (
-    peer: SocketAddr,
-    stream: TcpStream,
-    front_end_event_sender: tokio::sync::broadcast::Sender<Alert>,
-) -> Result<()> {
-    let front_end_event_receiver = front_end_event_sender.subscribe();
+async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
+    let alerts_sender = APP.get().await.alerts_sender.clone();
+
+    let alerts_receiver = alerts_sender.subscribe();
 
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
 
@@ -70,18 +59,19 @@ async fn handle_connection (
 
     let ws_sendercc = ws_sender.clone();
 
-    let t_handle = tokio::spawn(handle_front_end_events(
-        front_end_event_receiver,
-        ws_senderc,
-        peer,
-    ));
+    let t_handle = tokio::spawn(handle_front_end_events(alerts_receiver, ws_senderc, peer));
 
     let forever = tokio::task::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
 
         loop {
             interval.tick().await;
-            ws_sendercc.lock().await.send(Message::Ping(vec![])).await.expect("send ping");
+            ws_sendercc
+                .lock()
+                .await
+                .send(Message::Ping(vec![]))
+                .await
+                .expect("send ping");
         }
     });
 
@@ -95,7 +85,7 @@ async fn handle_connection (
             Ok(Message::Text(msg)) => {
                 println!("text message: {msg} - from client {peer}");
                 let alert = serde_json::from_str::<Alert>(&msg).expect("alert");
-                front_end_event_sender.send(alert).expect("send alert");
+                alerts_sender.send(alert).expect("send alert");
             }
             Ok(Message::Pong(ping)) => {
                 println!("Pong {ping:?} - from client {peer}");
@@ -118,7 +108,7 @@ async fn handle_connection (
     Ok(())
 }
 
-async fn handle_front_end_events (
+async fn handle_front_end_events(
     mut front_end_event_receiver: tokio::sync::broadcast::Receiver<Alert>,
     ws_sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>>,
     _peer: SocketAddr,
@@ -127,16 +117,10 @@ async fn handle_front_end_events (
         println!("Sending Ws:: {msg:?}");
 
         let alert = serde_json::to_string(&msg).expect("alert");
-        
-        if let Err(e) = ws_sender
-            .lock()
-            .await
-            .send(Message::Text(alert))
-            .await
-        {
-                println!("{e}");
-                break;
-        }
 
+        if let Err(e) = ws_sender.lock().await.send(Message::Text(alert)).await {
+            println!("{e}");
+            break;
+        }
     }
 }
