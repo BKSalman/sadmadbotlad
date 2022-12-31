@@ -13,13 +13,11 @@ pub struct VideoInfo {
 }
 
 pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
-    if url.contains("?v=") && url.contains("&") {
+    if url.contains("?v=") && url.contains('&') {
         return Ok(&url[url.find("?v=").unwrap() + 3..url.find('&').unwrap()]);
     } else if url.contains("?v=") {
         return Ok(&url[url.find("?v=").unwrap() + 3..]);
-    } else if url.contains("/watch/") {
-        return Ok(url.rsplit_once('/').expect("yt watch format link").1);
-    } else if url.contains("https://youtu.be") {
+    } else if url.contains("/watch/") || url.contains("https://youtu.be") {
         return Ok(url.rsplit_once('/').expect("yt watch format link").1);
     }
 

@@ -9,15 +9,17 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use crate::song_requests::SrQueue;
 use crate::twitch::{get_title, set_title};
 use crate::{
     irc::{irc_login, to_irc_message},
-    song_requests::{SongRequest, SongRequestSetup},
+    song_requests::SongRequest,
 };
 use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent};
 
 const RULES: &str = include_str!("../rules.txt");
 const WARRANTY: &str = include_str!("../warranty.txt");
+const RUST_WARRANTY: &str = include_str!("../rust_warranty.txt");
 
 #[derive(Debug)]
 pub enum Event {
@@ -56,6 +58,7 @@ pub enum IrcChat {
     SetTitle(String),
     ModsOnly,
     Warranty,
+    RustWarranty,
     PlaySpotify,
     StopSpotify,
     Commercial,
@@ -84,12 +87,12 @@ pub async fn event_handler(
     front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
-    let sr_setup = Arc::new(tokio::sync::RwLock::new(SongRequestSetup::new()?));
+    let queue = Arc::new(tokio::sync::RwLock::new(SrQueue::new()));
     let song_sender = Arc::new(song_sender);
 
     irc_login(&mut ws_sender, &api_info).await?;
 
-    let sr_setupc = sr_setup.clone();
+    let sr_setupc = queue.clone();
 
     let t_handle = tokio::spawn(async move {
         front_end_receiver(front_end_sr_sender, sr_setupc).await;
@@ -129,7 +132,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::Sr((sender, song)) => {
-                        let message = sr_setup
+                        let message = queue
                             .write()
                             .await
                             .sr(&song, sender, song_sender.as_ref(), api_info.clone())
@@ -138,8 +141,8 @@ pub async fn event_handler(
                     }
                     IrcChat::SkipSr => {
                         let mut message = String::new();
-                        if let Some(song) = &sr_setup.read().await.queue.current_song {
-                            if let Ok(_) = mpv.playlist_next_force() {
+                        if let Some(song) = &queue.read().await.current_song {
+                            if mpv.playlist_next_force().is_ok() {
                                 message = to_irc_message(format!("Skipped: {}", song.title));
                             }
                         } else {
@@ -161,7 +164,7 @@ pub async fn event_handler(
                         ws_sender.send(Message::Text(to_irc_message(e))).await?;
                     }
                     IrcChat::Queue => {
-                        println!("{:#?}", sr_setup.read().await.queue);
+                        println!("{:#?}", queue.read().await.queue);
                         ws_sender
                             .send(Message::Text(to_irc_message(
                                 "Check the queue at: https://f5rfm.bksalman.com",
@@ -169,9 +172,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::CurrentSong => {
-                        if let Some(current_song) =
-                            sr_setup.read().await.queue.current_song.as_ref()
-                        {
+                        if let Some(current_song) = queue.read().await.current_song.as_ref() {
                             ws_sender
                                 .send(Message::Text(to_irc_message(format!(
                                     "Current song: {} - by {}",
@@ -196,7 +197,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::PlaySpotify => {
-                        if let Ok(_) = Command::new("./scripts/play_spotify.sh").spawn() {
+                        if Command::new("./scripts/play_spotify.sh").spawn().is_ok() {
                             ws_sender
                                 .send(Message::Text(to_irc_message(String::from(
                                     "Started playing spotify",
@@ -251,7 +252,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::Play => {
-                        if let Some(song) = &sr_setup.read().await.queue.current_song {
+                        if let Some(song) = &queue.read().await.current_song {
                             if let Err(e) = mpv.unpause() {
                                 println!("{e}");
                             }
@@ -381,19 +382,24 @@ pub async fn event_handler(
                             )))
                             .await?;
                     }
+                    IrcChat::RustWarranty => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message(RUST_WARRANTY)))
+                            .await?;
+                    }
                 },
             },
             Event::MpvEvent(mpv_event) => match mpv_event {
                 MpvEvent::DequeueSong => {
-                    if sr_setup.read().await.queue.current_song.is_some() {
-                        sr_setup.write().await.queue.current_song = None;
+                    if queue.read().await.current_song.is_some() {
+                        queue.write().await.current_song = None;
                         continue;
                     }
 
-                    sr_setup.write().await.queue.dequeue();
+                    queue.write().await.dequeue();
                 }
                 MpvEvent::Error(e) => {
-                    sr_setup.write().await.queue.current_song = None;
+                    queue.write().await.current_song = None;
                     println!("{e}");
 
                     let e_str = e.to_string();
@@ -416,7 +422,7 @@ pub async fn event_handler(
 
 async fn front_end_receiver(
     front_end_events_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
-    sr_setup: Arc<tokio::sync::RwLock<SongRequestSetup>>,
+    sr_setup: Arc<tokio::sync::RwLock<SrQueue>>,
 ) {
     let mut front_end_events_receiver = front_end_events_sender.subscribe();
 
@@ -424,9 +430,7 @@ async fn front_end_receiver(
         match msg {
             SrFrontEndEvent::QueueRequest => {
                 front_end_events_sender
-                    .send(SrFrontEndEvent::QueueResponse(
-                        sr_setup.read().await.queue.clone(),
-                    ))
+                    .send(SrFrontEndEvent::QueueResponse(sr_setup.clone()))
                     .expect("song response");
             }
             SrFrontEndEvent::QueueResponse(_) => {}

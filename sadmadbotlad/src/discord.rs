@@ -59,7 +59,7 @@ pub async fn online_notification(api_info: &ApiInfo) -> Result<(), eyre::Report>
     let message = Message {
         content: String::from("<@&897124518374559794> Salman is streaming\n"),
         embeds: vec![Embed {
-            title: format!("{}", title),
+            title: title.to_string(),
             author: Author {
                 name: String::from("SadMadLadSalMaN"),
                 icon_url: String::from("https://static-cdn.jtvnw.net/jtv_user_pictures/497627b8-c550-4703-ae00-46a4a3cdc4c8-profile_image-300x300.png"),

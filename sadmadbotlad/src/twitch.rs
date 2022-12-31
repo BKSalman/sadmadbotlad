@@ -346,13 +346,7 @@ pub async fn is_vip(
         .await?;
 
     Ok(match res["data"][0]["user_id"].as_str() {
-        Some(id) => {
-            if user_id == id {
-                true
-            } else {
-                false
-            }
-        }
+        Some(id) => user_id == id,
         None => false,
     })
 }

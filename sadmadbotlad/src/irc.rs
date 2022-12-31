@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
-    flatten,
+    flatten, get_cmd_delim,
     song_requests::{play_song, setup_mpv, SongRequest},
     Alert, ApiInfo, SrFrontEndEvent,
 };
@@ -105,21 +105,21 @@ async fn read(
                 let parsed_sender = parse_sender(&msg);
                 let parsed_msg = parse_message(&msg);
 
-                if !parsed_msg.starts_with('!') {
+                if !parsed_msg.starts_with(get_cmd_delim()) {
                     continue;
                 }
 
                 let tags = msg.split_once(':').expect("no chat tags").0;
                 // ^have a proper structure for it later, and methods to extract is_mod and is_vip and shit
                 let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
-                let cmd = &parsed_msg[0..space_index].to_lowercase();
+                let command = &parsed_msg[1..space_index].to_lowercase();
                 let args = &parsed_msg[space_index..].trim();
 
-                match cmd.as_str() {
-                    "!ping" => {
+                match command.as_str() {
+                    "ping" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ChatPing)))?
                     }
-                    "!sr" => {
+                    "sr" => {
                         if args.is_empty() {
                             let e = String::from("Correct usage: !sr <URL>");
                             event_sender
@@ -133,7 +133,7 @@ async fn read(
                             song.to_string(),
                         )))))?;
                     }
-                    "!skip" => {
+                    "skip" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"
                         {
@@ -144,7 +144,7 @@ async fn read(
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))?
                     }
-                    "!voteskip" => {
+                    "voteskip" => {
                         // TODO: figure out how to make every vote reset the timer (timeout??)
 
                         let counterc = vote_counter.clone();
@@ -168,17 +168,17 @@ async fn read(
                                 .expect("skip");
                         }
                     }
-                    "!queue" | "!q" => {
+                    "queue" | "q" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Queue)))?
                     }
-                    "!currentsong" | "!song" => {
+                    "currentsong" | "song" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSong)))?
                     }
-                    "!currentspotify" | "!currentsp" => {
+                    "currentspotify" | "currentsp" => {
                         event_sender
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::CurrentSongSpotify)))?;
                     }
-                    "!volume" | "!v" => {
+                    "volume" | "v" => {
                         if args.is_empty() {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetVolume)))?;
@@ -210,8 +210,8 @@ async fn read(
                         event_sender
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SetVolume(value))))?;
                     }
-                    "!play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
-                    "!playspotify" | "!playsp" => {
+                    "play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
+                    "playspotify" | "playsp" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"
                         {
@@ -222,8 +222,8 @@ async fn read(
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::PlaySpotify)))?
                     }
-                    "!stop" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?,
-                    "!stopspotify" | "!stopsp" => {
+                    "stop" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?,
+                    "stopspotify" | "stopsp" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"
                         {
@@ -234,7 +234,7 @@ async fn read(
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::StopSpotify)))?
                     }
-                    "!قوانين" => {
+                    "قوانين" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"
                         {
@@ -245,7 +245,7 @@ async fn read(
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Rules)))?
                     }
-                    "!title" => {
+                    "title" => {
                         if args.is_empty() {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::GetTitle)))?;
@@ -264,11 +264,16 @@ async fn read(
                             args.to_string(),
                         ))))?;
                     }
-                    "!warranty" => {
+                    "warranty" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Warranty)))?;
                         continue;
                     }
-                    "!test" => {
+                    "rustwarranty" | "!rwarranty" => {
+                        event_sender
+                            .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::RustWarranty)))?;
+                        continue;
+                    }
+                    "test" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"
                         {
@@ -288,6 +293,7 @@ async fn read(
                 if msg.contains("PING") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
                 } else if msg.contains("RECONNECT") {
+                    // TODO: reconnect
                 } else {
                     // println!("{msg}");
                 }
@@ -303,13 +309,13 @@ async fn read(
 }
 
 fn parse_message(msg: &str) -> String {
-    let first = msg.trim()[(&msg[1..]).find(':').unwrap() + 2..].replace("\r\n", "");
+    let first = msg.trim()[(msg[1..]).find(':').unwrap() + 2..].replace("\r\n", "");
 
-    first[(&first[1..]).find(':').unwrap() + 2..].to_string()
+    first[(first[1..]).find(':').unwrap() + 2..].to_string()
 }
 
 fn parse_sender(msg: &str) -> String {
-    let first = &msg.trim()[(&msg[1..]).find(':').unwrap() + 1..];
+    let first = &msg.trim()[(msg[1..]).find(':').unwrap() + 1..];
 
     first[1..first.find('!').unwrap()].to_string()
 }

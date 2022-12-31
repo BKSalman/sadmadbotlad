@@ -23,28 +23,24 @@ pub async fn obs_websocket(
     pin_mut!(events);
 
     while let Some(event) = events.next().await {
-        match event {
-            Event::CurrentProgramSceneChanged { name } => {
-                if name != "Random" {
-                    continue;
-                }
-
-                match run_ads(&api_info).await {
-                    Ok(retry) => {
-                        println!("retry after {} seconds", retry);
-                        e_sender
-                            .send(EventHandler::IrcEvent(IrcEvent::Chat(IrcChat::Commercial)))?;
-                    }
-                    Err(e) => match e {
-                        AdError::TooManyRequests => {
-                            println!("{}", e)
-                        }
-                        AdError::UnAuthorized => panic!("{e}"),
-                        AdError::RequestErr(err) => panic!("{}", err),
-                    },
-                }
+        if let Event::CurrentProgramSceneChanged { name } = event {
+            if name != "Random" {
+                continue;
             }
-            _ => {}
+
+            match run_ads(&api_info).await {
+                Ok(retry) => {
+                    println!("retry after {} seconds", retry);
+                    e_sender.send(EventHandler::IrcEvent(IrcEvent::Chat(IrcChat::Commercial)))?;
+                }
+                Err(e) => match e {
+                    AdError::TooManyRequests => {
+                        println!("{}", e)
+                    }
+                    AdError::UnAuthorized => panic!("{e}"),
+                    AdError::RequestErr(err) => panic!("{}", err),
+                },
+            }
         }
     }
 

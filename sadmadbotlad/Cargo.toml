@@ -9,7 +9,7 @@ edition = "2021"
 reqwest = { version = "0.11.12", features = ["json"] }
 serde = { version = "1.0.147", features = ["derive"] }
 tokio = { version = "1.21.2", features = ["full"] }
-twitch_api = { version = "0.7.0-rc.2", features = ["reqwest", "helix", "eventsub", "hmac"] }
+twitch_api = { version = "0.7.0-rc.2", features=["helix"] }
 eyre = "0.6"
 color-eyre = { version = "0.6", features = ["capture-spantrace"] }
 futures-util = "0.3.25"
@@ -27,3 +27,4 @@ toml = "0.5.10"
 obws = { version = "0.10.0", features = ["events"] }
 surrealdb = { version = "1.0.0-beta.8", default-features = false, features = ["kv-rocksdb"] }
 open = "3.2.0"
+clap = { version = "4.0.32", features = ["cargo"] }

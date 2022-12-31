@@ -2,76 +2,12 @@ use std::sync::Arc;
 
 use libmpv::events::{Event, PropertyData};
 use libmpv::{FileState, Mpv};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 
 use crate::irc::to_irc_message;
 use crate::{youtube, ApiInfo};
-// use tokio::sync::broadcast::Sender;
-// // use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
-
-// use crate::youtube;
 use html_escape::decode_html_entities;
-
-pub struct SongRequestSetup {
-    pub queue: Queue,
-}
-
-impl SongRequestSetup {
-    pub fn new() -> Result<Self, eyre::Report> {
-        Ok(Self {
-            queue: Queue::new(),
-        })
-    }
-
-    pub async fn sr(
-        &mut self,
-        irc_msg: &str,
-        irc_sender: impl Into<String>,
-        song_sender: &Sender<SongRequest>,
-        api_info: Arc<ApiInfo>,
-    ) -> Result<String, eyre::Report> {
-        // request is a video title
-        if !irc_msg.starts_with("https://") {
-            let video_info = youtube::video_info(irc_msg, api_info)
-                .await?;
-
-            let song = SongRequest {
-                title: video_info.title,
-                user: irc_sender.into(),
-                url: format!("https://www.youtube.com/watch/{}", video_info.id),
-                id: video_info.id,
-            };
-
-            song_sender.send(song.clone()).await.expect("send song");
-
-            self.queue.enqueue(&song).expect("Enqueuing");
-
-            return Ok(to_irc_message(format!("Added: {}", song.title)));
-        }
-        // request is a valid yt URL
-
-        let video_id = youtube::video_id_from_url(irc_msg)?;
-
-        let video_title = youtube::video_title(irc_msg, api_info)
-            .await?;
-
-        let video_title = decode_html_entities(&video_title).to_string();
-        
-        let song = SongRequest {
-            title: video_title.clone(),
-            user: irc_sender.into(),
-            url: format!("https://youtube.com/watch/{}", video_id),
-            id: video_id.to_string(),
-        };
-
-        song_sender.send(song.clone()).await.expect("send song");
-
-        self.queue.enqueue(&song).expect("Enqueuing");
-
-        return Ok(to_irc_message(format!("Added: {}", video_title)));
-    }
-}
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SongRequest {
@@ -82,13 +18,13 @@ pub struct SongRequest {
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct Queue {
+pub struct SrQueue {
     pub current_song: Option<SongRequest>,
     pub queue: [Option<SongRequest>; 20],
     pub rear: usize,
 }
 
-impl Queue {
+impl SrQueue {
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,6 +59,52 @@ impl Queue {
         }
 
         self.rear -= 1;
+    }
+
+    pub async fn sr(
+        &mut self,
+        irc_msg: &str,
+        irc_sender: impl Into<String>,
+        song_sender: &Sender<SongRequest>,
+        api_info: Arc<ApiInfo>,
+    ) -> Result<String, eyre::Report> {
+        // request is a video title
+        if !irc_msg.starts_with("https://") {
+            let video_info = youtube::video_info(irc_msg, api_info).await?;
+
+            let song = SongRequest {
+                title: video_info.title,
+                user: irc_sender.into(),
+                url: format!("https://www.youtube.com/watch/{}", video_info.id),
+                id: video_info.id,
+            };
+
+            song_sender.send(song.clone()).await.expect("send song");
+
+            self.enqueue(&song).expect("Enqueuing");
+
+            return Ok(to_irc_message(format!("Added: {}", song.title)));
+        }
+        // request is a valid yt URL
+
+        let video_id = youtube::video_id_from_url(irc_msg)?;
+
+        let video_title = youtube::video_title(irc_msg, api_info).await?;
+
+        let video_title = decode_html_entities(&video_title).to_string();
+
+        let song = SongRequest {
+            title: video_title.clone(),
+            user: irc_sender.into(),
+            url: format!("https://youtube.com/watch/{}", video_id),
+            id: video_id.to_string(),
+        };
+
+        song_sender.send(song.clone()).await.expect("send song");
+
+        self.enqueue(&song).expect("Enqueuing");
+
+        return Ok(to_irc_message(format!("Added: {}", video_title)));
     }
 }
 

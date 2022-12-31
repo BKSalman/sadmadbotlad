@@ -1,21 +1,16 @@
-use std::{cell::RefCell, rc::Rc};
-
-use futures::{stream::SplitStream, SinkExt, StreamExt};
+use futures::StreamExt;
 use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
-use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 
 use crate::Queue;
 
 pub enum Msg {
-    RequestSongs,
     SongsResponse(String),
     Nothing,
 }
 
 pub struct Songs {
-    sender: futures::channel::mpsc::Sender<Message>,
     queue: String,
 }
 
@@ -24,42 +19,17 @@ impl Component for Songs {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        ctx.link().send_message(Msg::RequestSongs);
         let ws = WebSocket::open("wss://ws.bksalman.com").expect("Ws");
 
-        let (mut ws_sender, ws_receiver) = ws.split();
-
-        let (sender, mut in_rx) = futures::channel::mpsc::channel::<Message>(1000);
-
-        spawn_local(async move {
-            while let Some(msg) = in_rx.next().await {
-                ws_sender.send(msg).await.expect("send");
-            }
-        });
-
-        let ws_receiver = Rc::new(RefCell::new(ws_receiver));
-        ctx.link().send_future(do_stuff(ws_receiver.clone()));
+        ctx.link().send_future(do_stuff(ws));
 
         Self {
-            sender,
             queue: String::new(),
         }
     }
 
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::RequestSongs => {
-                {
-                    let mut senderc = self.sender.clone();
-                    spawn_local(async move {
-                        senderc
-                            .send(Message::Text(String::from("songs")))
-                            .await
-                            .expect("songs");
-                    });
-                }
-                false
-            }
             Msg::SongsResponse(queue) => {
                 self.queue = queue;
                 true
@@ -126,34 +96,24 @@ impl Component for Songs {
     }
 }
 
-async fn do_stuff(ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>) -> Msg {
-    if let Some(ws_msg) = ws_receiver.borrow_mut().next().await {
+async fn do_stuff(mut ws: WebSocket) -> Msg {
+    let mut yew_msg = Msg::Nothing;
+
+    while let Some(ws_msg) = ws.next().await {
         match ws_msg {
             Ok(Message::Text(msg)) => {
                 console::log!("got {}", &msg);
-                let Some((event_type, arg)) = msg.split_once("::") else {
-                    return Msg::Nothing;
-                };
-                match event_type {
-                    "queue" => {
-                        console::log!("song response");
-                        return Msg::SongsResponse(arg.to_string());
-                    }
-                    _ => {
-                        return Msg::Nothing;
-                    }
-                }
-            }
-            Ok(_msg) => {
-                console::log!("something");
-                return Msg::Nothing;
+                yew_msg = Msg::SongsResponse(msg);
+                break;
             }
             Err(e) => {
                 console::log!(format!("{e:?}"));
-                return Msg::Nothing;
+                break;
             }
+            _ => {}
         }
     }
 
-    Msg::Nothing
+    ws.close(Some(1000), None).expect("close ws");
+    yew_msg
 }

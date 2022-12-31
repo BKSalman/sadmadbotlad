@@ -5,7 +5,7 @@ use eyre::Context;
 use sadmadbotlad::obs_websocket::obs_websocket;
 use sadmadbotlad::twitch::get_access_token_from_code;
 use sadmadbotlad::{event_handler, sr_ws_server::sr_ws_server, ApiInfo};
-use sadmadbotlad::{Alert, SrFrontEndEvent};
+use sadmadbotlad::{set_cmd_delim, Alert, SrFrontEndEvent};
 // use tokio_retry::{strategy::ExponentialBackoff, Retry};
 
 use sadmadbotlad::{flatten, ws_server::ws_server};
@@ -16,34 +16,32 @@ use sadmadbotlad::{eventsub::eventsub, install_eyre, irc::irc_connect};
 async fn main() -> Result<(), eyre::Report> {
     install_eyre()?;
 
-    // Retry::spawn(ExponentialBackoff::from_millis(100).take(2), || {
-    //     println!("Attempting...");
-    //     run()
-    // })
-    //     .await
-    //     .with_context(|| "main:: running application")?;
-
     let mut args = std::env::args();
 
-    args.next();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-m" | "--manual" => {
+                let auth_link = std::fs::read_to_string("auth_link.txt")?;
+                open::that(auth_link)?;
 
-    match args.next() {
-        Some(arg) if arg == "-m" || arg == "--manual" => {
-            let auth_link = std::fs::read_to_string("auth_link.txt")?;
-            open::that(auth_link)?;
+                let mut code = String::new();
+                let stdin = std::io::stdin();
+                println!("Enter code:");
+                stdin.lock().read_line(&mut code).unwrap();
 
-            let mut code = String::new();
-            let stdin = std::io::stdin();
-            println!("Enter code:");
-            stdin.lock().read_line(&mut code).unwrap();
+                let code = code.trim();
 
-            let code = code.trim();
-
-            get_access_token_from_code(code).await?;
+                get_access_token_from_code(code).await?;
+            }
+            "-t" | "--test" => {
+                // safety: COMMAND_DELIMETER is only changed before running the function run,
+                // which only has readers to the variable
+                set_cmd_delim("#");
+            }
+            _ => {}
         }
-        _ => {}
     }
-    
+
     run().await?;
     Ok(())
 }

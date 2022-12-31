@@ -1,8 +1,8 @@
-use std::{fs, io::Read};
+use std::{fs, io::Read, sync::Arc};
 
 use eyre::WrapErr;
 use serde::{Deserialize, Serialize};
-use song_requests::Queue;
+use song_requests::SrQueue;
 use tokio::task::JoinHandle;
 use twitch::refresh_access_token;
 
@@ -17,6 +17,8 @@ pub mod sr_ws_server;
 pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
+
+pub static mut COMMAND_DELIMETER: &str = "!";
 
 pub fn install_eyre() -> eyre::Result<()> {
     let (_, eyre_hook) = color_eyre::config::HookBuilder::default().into_hooks();
@@ -68,7 +70,7 @@ pub struct Alert {
 #[derive(Debug, Clone)]
 pub enum SrFrontEndEvent {
     QueueRequest,
-    QueueResponse(Queue),
+    QueueResponse(Arc<tokio::sync::RwLock<SrQueue>>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -131,4 +133,14 @@ macro_rules! string {
     ($s: expr) => {{
         String::from($s)
     }};
+}
+
+pub fn get_cmd_delim() -> &'static str {
+    unsafe { COMMAND_DELIMETER }
+}
+
+pub fn set_cmd_delim(delim: &'static str) {
+    unsafe {
+        COMMAND_DELIMETER = delim;
+    }
 }

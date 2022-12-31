@@ -7,8 +7,8 @@ use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
-use tokio_retry::strategy::ExponentialBackoff;
-use tokio_retry::Retry;
+// use tokio_retry::strategy::ExponentialBackoff;
+// use tokio_retry::Retry;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
@@ -60,7 +60,7 @@ async fn read(
                         println!("Reconnecting eventsub");
 
                         let (socket, _) = connect_async(
-                            Url::parse(&session["reconnect_url"].as_str().expect("reconnect url"))
+                            Url::parse(session["reconnect_url"].as_str().expect("reconnect url"))
                                 .expect("Parsed URL"),
                         )
                         .await?;
@@ -76,21 +76,21 @@ async fn read(
 
                     let session_id = session["id"].as_str().expect("session id");
 
-                    online_eventsub(&api_info, &session_id).await?;
+                    online_eventsub(&api_info, session_id).await?;
 
-                    offline_eventsub(&api_info, &session_id).await?;
+                    offline_eventsub(&api_info, session_id).await?;
 
-                    follow_eventsub(&api_info, &session_id).await?;
+                    follow_eventsub(&api_info, session_id).await?;
 
-                    raid_eventsub(&api_info, &session_id).await?;
+                    raid_eventsub(&api_info, session_id).await?;
 
-                    subscribe_eventsub(&api_info, &session_id).await?;
+                    subscribe_eventsub(&api_info, session_id).await?;
 
-                    resubscribe_eventsub(&api_info, &session_id).await?;
+                    resubscribe_eventsub(&api_info, session_id).await?;
 
-                    giftsub_eventsub(&api_info, &session_id).await?;
+                    giftsub_eventsub(&api_info, session_id).await?;
 
-                    rewards_eventsub(&api_info, &session_id).await?;
+                    rewards_eventsub(&api_info, session_id).await?;
 
                     println!("Subscribed to eventsubs");
                 } else if let Some(subscription) =
@@ -141,7 +141,7 @@ async fn read(
                                     .as_str()
                                     .expect("tier");
                                 if long_tier != "Prime" {
-                                    long_tier.chars().nth(0).expect("first char").to_string()
+                                    long_tier.chars().next().expect("first char").to_string()
                                 } else {
                                     long_tier.to_string()
                                 }
@@ -180,7 +180,7 @@ async fn read(
                                     .as_str()
                                     .expect("tier");
                                 if long_tier != "Prime" {
-                                    long_tier.chars().nth(0).expect("first char").to_string()
+                                    long_tier.chars().next().expect("first char").to_string()
                                 } else {
                                     long_tier.to_string()
                                 }
@@ -225,7 +225,7 @@ async fn read(
                                     .as_str()
                                     .expect("tier");
                                 if long_tier != "Prime" {
-                                    long_tier.chars().nth(0).expect("first char").to_string()
+                                    long_tier.chars().next().expect("first char").to_string()
                                 } else {
                                     long_tier.to_string()
                                 }
