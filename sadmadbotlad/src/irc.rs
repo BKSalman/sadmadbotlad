@@ -20,6 +20,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 pub async fn irc_connect(
     e_sender: UnboundedSender<Event>,
     e_receiver: UnboundedReceiver<Event>,
+    api_info: Arc<ApiInfo>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
 
@@ -53,6 +54,7 @@ pub async fn irc_connect(
             ws_receiver,
             alerts_sender,
             sr_sender,
+            api_info,
         ))),
     )
     .wrap_err_with(|| "irc")?;

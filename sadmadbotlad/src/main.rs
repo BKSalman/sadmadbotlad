@@ -4,9 +4,8 @@ use std::sync::Arc;
 use eyre::Context;
 use sadmadbotlad::obs_websocket::obs_websocket;
 use sadmadbotlad::twitch::get_access_token_from_code;
-use sadmadbotlad::{event_handler, sr_ws_server::sr_ws_server, ApiInfo};
-use sadmadbotlad::{Alert, App, SrFrontEndEvent, APP};
-// use tokio_retry::{strategy::ExponentialBackoff, Retry};
+use sadmadbotlad::{event_handler, sr_ws_server::sr_ws_server};
+use sadmadbotlad::{ApiInfo, APP};
 
 use sadmadbotlad::{flatten, ws_server::ws_server};
 
@@ -30,21 +29,25 @@ async fn main() -> Result<(), eyre::Report> {
         get_access_token_from_code(code).await?;
     }
 
-    println!("{:?}", APP.get().await.config);
-
-    // run().await?;
+    run().await?;
     Ok(())
 }
 
 async fn run() -> Result<(), eyre::Report> {
+    let api_info = Arc::new(ApiInfo::new().await.expect("Api info failed"));
+
     let (e_sender, e_receiver) = tokio::sync::mpsc::unbounded_channel::<event_handler::Event>();
 
     tokio::try_join!(
-        flatten(tokio::spawn(eventsub())),
-        flatten(tokio::spawn(irc_connect(e_sender.clone(), e_receiver))),
+        flatten(tokio::spawn(eventsub(api_info.clone()))),
+        flatten(tokio::spawn(irc_connect(
+            e_sender.clone(),
+            e_receiver,
+            api_info.clone(),
+        ))),
         flatten(tokio::spawn(sr_ws_server())),
         flatten(tokio::spawn(ws_server())),
-        flatten(tokio::spawn(obs_websocket(e_sender))),
+        flatten(tokio::spawn(obs_websocket(e_sender, api_info))),
         // TODO: get current spotify song every 20 secs
     )
     .wrap_err_with(|| "Run")?;

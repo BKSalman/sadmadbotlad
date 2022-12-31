@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use crate::{discord::online_notification, ApiInfo};
 use crate::{Alert, AlertEventType, APP};
@@ -8,15 +9,14 @@ use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-pub async fn eventsub() -> Result<(), eyre::Report> {
-    read().await?;
+pub async fn eventsub(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
+    read(api_info).await?;
 
     Ok(())
 }
 
-async fn read() -> Result<(), eyre::Report> {
+async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
     let alerts_sender = APP.get().await.alerts_sender.clone();
-    let api_info = APP.get().await.api_info.clone();
 
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))

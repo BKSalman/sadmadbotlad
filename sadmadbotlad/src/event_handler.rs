@@ -15,7 +15,7 @@ use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::SongRequest,
 };
-use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent, APP};
+use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent};
 
 const RULES: &str = include_str!("../rules.txt");
 const WARRANTY: &str = include_str!("../warranty.txt");
@@ -86,9 +86,9 @@ pub async fn event_handler(
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     front_end_alert_sender: tokio::sync::broadcast::Sender<Alert>,
     front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+    api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
     let queue = Arc::new(tokio::sync::RwLock::new(SrQueue::new()));
-    let api_info = APP.get().await.api_info.clone();
 
     irc_login(&mut ws_sender, &api_info).await?;
 

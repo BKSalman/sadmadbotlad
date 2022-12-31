@@ -35,7 +35,6 @@ pub struct Config {
 #[derive(Debug)]
 pub struct App {
     pub config: Config,
-    pub api_info: Arc<ApiInfo>,
     pub alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     pub sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
 }
@@ -45,11 +44,8 @@ impl App {
         let (alerts_sender, _) = tokio::sync::broadcast::channel::<Alert>(100);
         let (sr_sender, _) = tokio::sync::broadcast::channel::<SrFrontEndEvent>(100);
 
-        let api_info = Arc::new(ApiInfo::new().await.expect("Api info failed"));
-
         Self {
             config: Config::parse(),
-            api_info,
             alerts_sender,
             sr_sender,
         }
