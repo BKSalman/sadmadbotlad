@@ -1,6 +1,5 @@
 use std::{fs, io::Read, sync::Arc};
 
-use async_once::AsyncOnce;
 use clap::{command, Parser};
 use eyre::WrapErr;
 use lazy_static::lazy_static;
@@ -40,7 +39,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new() -> Self {
+    pub fn new() -> Self {
         let (alerts_sender, _) = tokio::sync::broadcast::channel::<Alert>(100);
         let (sr_sender, _) = tokio::sync::broadcast::channel::<SrFrontEndEvent>(100);
 
@@ -53,7 +52,7 @@ impl App {
 }
 
 lazy_static! {
-    pub static ref APP: AsyncOnce<App> = AsyncOnce::new(async { App::new().await });
+    pub static ref APP: App = App::new();
 }
 
 pub fn install_eyre() -> eyre::Result<()> {

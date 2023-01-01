@@ -12,7 +12,7 @@ pub async fn sr_ws_server() -> Result<(), eyre::Report> {
     println!("Starting Sr WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, APP.get().await.config.port - 1000);
+    let address = SocketAddrV4::new(ip_address, APP.config.port);
     let listener = TcpListener::bind(address).await?;
 
     while let Ok((stream, _)) = listener.accept().await {
@@ -38,7 +38,7 @@ async fn accept_connection(peer: SocketAddr, stream: TcpStream) {
 }
 
 async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
-    let sr_sender = APP.get().await.sr_sender.clone();
+    let sr_sender = APP.sr_sender.clone();
 
     let mut sr_receiver = sr_sender.subscribe();
 

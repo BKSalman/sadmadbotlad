@@ -17,7 +17,7 @@ pub async fn ws_server() -> Result<(), eyre::Report> {
     println!("Starting WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, APP.get().await.config.port);
+    let address = SocketAddrV4::new(ip_address, APP.config.port + 1000);
     let listener = TcpListener::bind(address).await?;
 
     while let Ok((stream, _)) = listener.accept().await {
@@ -45,7 +45,7 @@ async fn accept_connection(peer: SocketAddr, stream: TcpStream) {
 }
 
 async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
-    let alerts_sender = APP.get().await.alerts_sender.clone();
+    let alerts_sender = APP.alerts_sender.clone();
 
     let alerts_receiver = alerts_sender.subscribe();
 
@@ -88,7 +88,7 @@ async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
                 alerts_sender.send(alert).expect("send alert");
             }
             Ok(Message::Pong(ping)) => {
-                println!("Pong {ping:?} - from client {peer}");
+                println!("Events Ws:: Pong {ping:?} - from client {peer}");
             }
             Ok(msg) => {
                 println!("message: {msg:?} - from client {peer}");

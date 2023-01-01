@@ -15,7 +15,7 @@ use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::SongRequest,
 };
-use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent};
+use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent, APP};
 
 const RULES: &str = include_str!("../rules.txt");
 const WARRANTY: &str = include_str!("../warranty.txt");
@@ -123,7 +123,10 @@ pub async fn event_handler(
                 IrcEvent::Chat(event) => match event {
                     IrcChat::ChatPing => {
                         ws_sender
-                            .send(Message::Text(to_irc_message("!pong")))
+                            .send(Message::Text(to_irc_message(format!(
+                                "{}pong",
+                                APP.config.cmd_delim
+                            ))))
                             .await?;
                     }
                     IrcChat::Ping => {

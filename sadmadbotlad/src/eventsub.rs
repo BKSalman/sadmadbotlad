@@ -16,7 +16,7 @@ pub async fn eventsub(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
 }
 
 async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
-    let alerts_sender = APP.get().await.alerts_sender.clone();
+    let alerts_sender = APP.alerts_sender.clone();
 
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))

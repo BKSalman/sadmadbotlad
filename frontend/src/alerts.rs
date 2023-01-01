@@ -4,6 +4,7 @@ use futures::{stream::SplitStream, StreamExt};
 use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use yew::prelude::*;
+use yew_router::scope_ext::RouterScopeExt;
 
 use crate::{components::alert::Alert, Alert as AlertEnum, AlertEventType};
 
@@ -24,7 +25,18 @@ impl Component for Alerts {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        let ws = WebSocket::open("ws://localhost:4000").expect("Ws");
+        let location = ctx.link().location().unwrap();
+        let query = location.query_str();
+
+        let ws = if query.starts_with("?port=") {
+            WebSocket::open(&format!(
+                "ws://localhost:{}",
+                &query[query.find("?port=").unwrap()..query.find("?").unwrap_or(query.len())]
+            ))
+            .expect("Ws")
+        } else {
+            WebSocket::open("ws://localhost:4000").expect("Ws")
+        };
 
         let (_, ws_receiver) = ws.split();
 
