@@ -15,7 +15,7 @@ use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::SongRequest,
 };
-use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent};
+use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent, APP};
 
 const RULES: &str = include_str!("../rules.txt");
 const WARRANTY: &str = include_str!("../warranty.txt");
@@ -89,7 +89,6 @@ pub async fn event_handler(
     api_info: Arc<ApiInfo>,
 ) -> Result<(), eyre::Report> {
     let queue = Arc::new(tokio::sync::RwLock::new(SrQueue::new()));
-    let song_sender = Arc::new(song_sender);
 
     irc_login(&mut ws_sender, &api_info).await?;
 
@@ -124,7 +123,10 @@ pub async fn event_handler(
                 IrcEvent::Chat(event) => match event {
                     IrcChat::ChatPing => {
                         ws_sender
-                            .send(Message::Text(to_irc_message("!pong")))
+                            .send(Message::Text(to_irc_message(format!(
+                                "{}pong",
+                                APP.config.cmd_delim
+                            ))))
                             .await?;
                     }
                     IrcChat::Ping => {
@@ -136,7 +138,7 @@ pub async fn event_handler(
                         let message = queue
                             .write()
                             .await
-                            .sr(&song, sender, song_sender.as_ref(), api_info.clone())
+                            .sr(&song, sender, song_sender.clone(), api_info.clone())
                             .await?;
                         ws_sender.send(Message::Text(message)).await?;
                     }

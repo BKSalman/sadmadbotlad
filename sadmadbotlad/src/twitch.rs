@@ -277,7 +277,7 @@ pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> 
             "client_secret": configs.client_secret,
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": "https://localhost:4000/",
+            "redirect_uri": "http://localhost:8080/code",
         }))
         .send()
         .await?;

@@ -1,21 +1,10 @@
 use frontend::activity_feed::Activity;
 use frontend::alerts::Alerts;
+use frontend::code::Code;
 use frontend::songs::Songs;
+use frontend::Route;
 use yew::prelude::*;
 use yew_router::prelude::*;
-
-#[derive(Clone, Routable, PartialEq)]
-enum Route {
-    #[at("/alerts")]
-    Alerts,
-    #[at("/activity")]
-    Activity,
-    #[at("/")]
-    Songs,
-    #[not_found]
-    #[at("/404")]
-    NotFound,
-}
 
 pub struct App {}
 
@@ -32,11 +21,11 @@ impl Component for App {
     }
 
     fn view(&self, _ctx: &Context<Self>) -> Html {
-
         let switch = move |routes: Route| match routes {
             Route::Alerts => html! { <Alerts /> },
             Route::Songs => html! { <Songs /> },
             Route::Activity => html! { <Activity /> },
+            Route::Code => html! { <Code /> },
             Route::NotFound => html! { <h1>{ "404" }</h1> },
         };
 

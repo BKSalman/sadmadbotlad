@@ -1,9 +1,26 @@
 use serde::{Deserialize, Serialize};
+use yew_router::Routable;
 
 pub mod activity_feed;
 pub mod alerts;
+pub mod code;
 pub mod components;
 pub mod songs;
+
+#[derive(Clone, Routable, PartialEq)]
+pub enum Route {
+    #[at("/alerts")]
+    Alerts,
+    #[at("/activity")]
+    Activity,
+    #[at("/")]
+    Songs,
+    #[at("/code")]
+    Code,
+    #[not_found]
+    #[at("/404")]
+    NotFound,
+}
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SongRequest {
@@ -58,7 +75,6 @@ pub enum AlertEventType {
         tier: String,
     },
 }
-
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Alert {

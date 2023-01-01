@@ -2,6 +2,7 @@ use futures::StreamExt;
 use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
 use yew::prelude::*;
+use yew_router::prelude::*;
 
 use crate::Queue;
 
@@ -19,7 +20,17 @@ impl Component for Songs {
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
-        let ws = WebSocket::open("wss://ws.bksalman.com").expect("Ws");
+        let location = ctx.link().location().unwrap();
+        let query = location.query_str();
+        let ws = if query.starts_with("?port=") {
+            WebSocket::open(&format!(
+                "ws://localhost:{}",
+                query.split_once('=').unwrap().1
+            ))
+            .expect("Ws")
+        } else {
+            WebSocket::open("wss://ws.bksalman.com").expect("Ws")
+        };
 
         ctx.link().send_future(do_stuff(ws));
 

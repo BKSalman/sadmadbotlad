@@ -6,15 +6,13 @@ use tokio_tungstenite::{
     tungstenite::{Message, Result},
 };
 
-use crate::SrFrontEndEvent;
+use crate::{SrFrontEndEvent, APP};
 
-pub async fn sr_ws_server(
-    front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
-) -> Result<(), eyre::Report> {
+pub async fn sr_ws_server() -> Result<(), eyre::Report> {
     println!("Starting Sr WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, 3000);
+    let address = SocketAddrV4::new(ip_address, APP.config.port);
     let listener = TcpListener::bind(address).await?;
 
     while let Ok((stream, _)) = listener.accept().await {
@@ -22,22 +20,14 @@ pub async fn sr_ws_server(
 
         // println!("Songs Peer address: {}", peer);
 
-        tokio::spawn(accept_connection(
-            peer,
-            stream,
-            front_end_event_sender.clone(),
-        ));
+        tokio::spawn(accept_connection(peer, stream));
     }
 
     Ok(())
 }
 
-async fn accept_connection(
-    peer: SocketAddr,
-    stream: TcpStream,
-    front_end_event_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
-) {
-    if let Err(e) = handle_connection(peer, stream, front_end_event_sender).await {
+async fn accept_connection(peer: SocketAddr, stream: TcpStream) {
+    if let Err(e) = handle_connection(peer, stream).await {
         match e {
             tokio_tungstenite::tungstenite::Error::ConnectionClosed
             | tokio_tungstenite::tungstenite::Error::Protocol(_)
@@ -47,20 +37,18 @@ async fn accept_connection(
     }
 }
 
-async fn handle_connection(
-    peer: SocketAddr,
-    stream: TcpStream,
-    front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
-) -> Result<()> {
-    let mut front_end_sr_receiver = front_end_sr_sender.subscribe();
+async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
+    let sr_sender = APP.sr_sender.clone();
+
+    let mut sr_receiver = sr_sender.subscribe();
 
     let mut ws_stream = accept_async(stream).await.expect("Failed to accept");
 
-    front_end_sr_sender
+    sr_sender
         .send(SrFrontEndEvent::QueueRequest)
         .expect("request songs");
 
-    while let Ok(msg) = front_end_sr_receiver.recv().await {
+    while let Ok(msg) = sr_receiver.recv().await {
         println!("Sending Queue to Peer {peer}");
         match msg {
             SrFrontEndEvent::QueueRequest => {}
