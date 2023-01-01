@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use futures_util::{pin_mut, StreamExt};
 use obws::{events::Event, Client};
@@ -18,6 +18,37 @@ pub async fn obs_websocket(
         println!("Could not connect to obs websocket");
         return Ok(())
     };
+
+    let current_scene = client.scenes().current_program_scene().await?;
+
+    let id = client
+        .scene_items()
+        .id(obws::requests::scene_items::Id {
+            scene: &current_scene,
+            source: "AlertBox",
+            search_offset: None,
+        })
+        .await?;
+
+    client
+        .scene_items()
+        .set_enabled(obws::requests::scene_items::SetEnabled {
+            scene: &current_scene,
+            item_id: id,
+            enabled: false,
+        })
+        .await?;
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    client
+        .scene_items()
+        .set_enabled(obws::requests::scene_items::SetEnabled {
+            scene: &current_scene,
+            item_id: id,
+            enabled: true,
+        })
+        .await?;
 
     let events = client.events()?;
     pin_mut!(events);
