@@ -143,7 +143,7 @@ async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
                                 Some(true) => {
                                     alerts_sender.send(Alert {
                                         new: true,
-                                        alert_type: AlertEventType::Gifted {
+                                        alert_type: AlertEventType::GiftedSub {
                                             gifted: subscriber,
                                             tier,
                                         },

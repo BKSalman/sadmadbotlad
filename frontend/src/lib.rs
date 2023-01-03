@@ -70,7 +70,7 @@ pub enum AlertEventType {
         total: u64,
         tier: String,
     },
-    Gifted {
+    GiftedSub {
         gifted: String,
         tier: String,
     },

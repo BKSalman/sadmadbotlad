@@ -4,10 +4,7 @@ use gloo_net::websocket::{futures::WebSocket, Message};
 use wasm_bindgen_futures::spawn_local;
 use yew::{html::Scope, prelude::*};
 
-use crate::{
-    components::event::Event,
-    Alert, AlertEventType,
-};
+use crate::{components::event::Event, Alert, AlertEventType};
 
 pub enum Msg {
     Event(Alert),
@@ -135,7 +132,7 @@ impl Component for Activity {
                                     />
                                 }
                             },
-                            AlertEventType::Gifted { gifted, tier } => {
+                            AlertEventType::GiftedSub { gifted, tier } => {
                                 html! {
                                     < Event
                                         text={format!("{gifted} got gifted a tier {tier} sub")}

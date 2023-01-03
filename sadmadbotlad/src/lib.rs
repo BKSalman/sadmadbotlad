@@ -9,6 +9,7 @@ use tokio::task::JoinHandle;
 use twitch::refresh_access_token;
 
 pub mod commands;
+pub mod db;
 pub mod discord;
 pub mod event_handler;
 pub mod eventsub;
@@ -90,10 +91,66 @@ pub enum AlertEventType {
         total: u64,
         tier: String,
     },
-    Gifted {
+    GiftedSub {
         gifted: String,
         tier: String,
     },
+}
+
+impl Into<surrealdb::sql::Value> for AlertEventType {
+    fn into(self) -> surrealdb::sql::Value {
+        match self {
+            AlertEventType::Follow { follower } => {
+                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                    "type".into() => "follow".into(),
+                    "follower".into() => follower.into()
+                }))
+            }
+            AlertEventType::Raid { from, viewers } => {
+                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                    "type".into() => "raid".into(),
+                    "from".into() => from.into(),
+                    "viewers".into() => viewers.into(),
+                }))
+            }
+            AlertEventType::Subscribe { subscriber, tier } => {
+                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                    "type".into() => "sub".into(),
+                    "subscriber".into() => subscriber.into(),
+                    "tier".into() => tier.into(),
+                }))
+            }
+            AlertEventType::ReSubscribe {
+                subscriber,
+                tier,
+                subscribed_for,
+                streak,
+            } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                "type".into() => "resub".into(),
+                "subscriber".into() => subscriber.into(),
+                "tier".into() => tier.into(),
+                "subscribed_for".into() => subscribed_for.into(),
+                "streak".into() => streak.into(),
+            })),
+            AlertEventType::GiftSub {
+                gifter,
+                total,
+                tier,
+            } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                "type".into() => "giftsub".into(),
+                "gifter".into() => gifter.into(),
+                "total".into() => total.into(),
+                "tier".into() => tier.into(),
+            })),
+            AlertEventType::GiftedSub { gifted, tier } => {
+                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                    "type".into() => "giftedsub".into(),
+                    "gifted".into() => gifted.into(),
+                    "tier".into() => tier.into(),
+                }))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -152,14 +209,14 @@ pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T
 // lazy man's macros
 
 #[macro_export]
-macro_rules! map {
+macro_rules! collection {
     // map-like
     ($($k:expr => $v:expr),* $(,)?) => {{
-        HashMap::from([$(($k, $v),)*])
+        core::convert::From::from([$(($k, $v),)*])
     }};
     // set-like
     ($($v:expr),* $(,)?) => {{
-        HashMap::from([$($v,)*])
+        core::convert::From::from([$($v,)*])
     }};
 }
 
@@ -168,4 +225,62 @@ macro_rules! string {
     ($s: expr) => {{
         String::from($s)
     }};
+}
+
+// This allows me to implement traits on external types
+// it's called Newtype pattern
+pub struct W<T>(pub T);
+
+use surrealdb::sql::{Array, Object, Value};
+
+impl TryFrom<W<Value>> for Object {
+    type Error = eyre::Report;
+    fn try_from(val: W<Value>) -> eyre::Result<Object> {
+        match val.0 {
+            Value::Object(obj) => Ok(obj),
+            _ => Err(eyre::eyre!("value not of type Object")),
+        }
+    }
+}
+
+impl TryFrom<W<Value>> for Array {
+    type Error = eyre::Report;
+    fn try_from(val: W<Value>) -> eyre::Result<Array> {
+        match val.0 {
+            Value::Array(obj) => Ok(obj),
+            _ => Err(eyre::eyre!("value not of type Array")),
+        }
+    }
+}
+
+impl TryFrom<W<Value>> for i64 {
+    type Error = eyre::Report;
+    fn try_from(val: W<Value>) -> eyre::Result<i64> {
+        match val.0 {
+            Value::Number(obj) => Ok(obj.as_int()),
+            _ => Err(eyre::eyre!("value not of type i64")),
+        }
+    }
+}
+
+impl TryFrom<W<Value>> for bool {
+    type Error = eyre::Report;
+    fn try_from(val: W<Value>) -> eyre::Result<bool> {
+        match val.0 {
+            Value::False => Ok(false),
+            Value::True => Ok(true),
+            _ => Err(eyre::eyre!("value not of type bool")),
+        }
+    }
+}
+
+impl TryFrom<W<Value>> for String {
+    type Error = eyre::Report;
+    fn try_from(val: W<Value>) -> eyre::Result<String> {
+        match val.0 {
+            Value::Strand(strand) => Ok(strand.as_string()),
+            Value::Thing(thing) => Ok(thing.to_string()),
+            _ => Err(eyre::eyre!("value not of type String")),
+        }
+    }
 }

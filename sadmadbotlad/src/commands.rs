@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::{map, string};
+use crate::{collection, string};
 
 #[derive(Debug)]
 struct Command {
@@ -30,7 +30,7 @@ pub fn something() {
     // let mut commands: HashMap<String, Command> =
     //     HashMap::from([(something.name.clone(), something)]);
 
-    let commands = map! {
+    let commands: HashMap<String, Command> = collection! {
         string!("something") => something,
     };
 

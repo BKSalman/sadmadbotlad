@@ -1,10 +1,15 @@
-use std::{fmt, fs};
+use std::{
+    fmt, fs,
+    net::{Ipv4Addr, SocketAddrV4},
+};
 
 use eyre::Context;
+use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use twitch_api::types::Timestamp;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{accept_async, tungstenite};
 
 use crate::ApiInfo;
 
@@ -31,103 +36,16 @@ impl fmt::Display for AdError {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct WsEventSub {
-    pub metadata: WsMetaData,
-    pub payload: WsPayload,
-}
-
-#[allow(unused)]
-#[derive(Debug, Deserialize)]
-pub struct WsMetaData {
-    message_id: String,
-    message_type: String,
-    message_timestamp: Timestamp,
-    subscription_type: Option<String>,
-    subscription_version: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WsPayload {
-    pub session: Option<WsSession>,
-    pub subscription: Option<WsSubscription>,
-    pub event: Option<WsEvent>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct WsSubscription {
-    pub id: String,
-    pub status: String,
-    pub r#type: String,
-    version: String,
-    condition: WsCondition,
-    transport: WsTransport,
-    created_at: Timestamp,
-    cost: u8,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct WsCondition {
-    broadcaster_user_id: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct WsTransport {
-    method: String,
-    session_id: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct WsSession {
-    pub id: String,
-    pub status: String,
-    pub connected_at: Timestamp,
-    pub keepalive_timeout_seconds: Option<u32>,
-    pub reconnect_url: Option<String>,
-}
-
-#[allow(unused)]
-#[derive(Debug, Deserialize)]
-pub struct WsEvent {
-    user_id: Option<String>,
-    pub user_login: Option<String>,
-    pub user_name: Option<String>,
-    broadcaster_user_id: String,
-    broadcaster_user_login: String,
-    broadcaster_user_name: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EventSub {
-    r#type: String,
-    version: u8,
-    condition: EventSubCondition,
-    transport: WsTransport,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EventSubCondition {
-    broadcaster_user_id: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct EventSubResponse {
-    pub data: Vec<WsSubscription>,
-    total_cost: u16,
-    max_total_cost: u32,
-    pagination: Pagination,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Pagination {
-    cursor: Option<String>,
-}
-
 #[allow(unused)]
 #[derive(Deserialize)]
 pub struct TwitchApiResponse {
     pub data: Vec<TwitchChannelInfo>,
     pagination: Option<Pagination>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Pagination {
+    cursor: Option<String>,
 }
 
 #[allow(unused)]
@@ -148,25 +66,6 @@ pub struct TwitchChannelInfo {
     thumbnail_url: String,
     tag_ids: Option<Vec<String>>,
     is_mature: bool,
-}
-
-#[allow(unused)]
-#[derive(Deserialize)]
-pub struct GetChannelInfo {
-    pub data: Vec<TwitchChannelInfo>,
-}
-
-#[allow(unused)]
-#[derive(Deserialize)]
-pub struct TwitchGetChannelInfo {
-    pub broadcaster_id: String,
-    pub title: String,
-    pub game_name: String,
-
-    broadcaster_login: String,
-    broadcaster_name: String,
-    game_id: String,
-    broadcaster_language: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -379,4 +278,36 @@ pub async fn run_ads(api_info: &ApiInfo) -> Result<i64, AdError> {
     println!("{:#?}", res);
 
     Ok(res.data[0].retry_after)
+}
+
+pub async fn access_token() -> eyre::Result<()> {
+    let auth_link = std::fs::read_to_string("auth_link.txt")?;
+    open::that(auth_link)?;
+
+    let ip_address = Ipv4Addr::new(127, 0, 0, 1);
+    let address = SocketAddrV4::new(ip_address, 4040);
+    let listener = TcpListener::bind(address).await?;
+
+    let Ok((stream, _)) = listener.accept().await else {
+        return Err(eyre::eyre!("Code Websocket failed"))
+    };
+
+    let peer = stream
+        .peer_addr()
+        .expect("connected streams should have a peer address");
+
+    println!("Peer address: {}", peer);
+
+    let mut ws = accept_async(stream).await?;
+
+    if let Some(msg) = ws.next().await {
+        match msg {
+            Ok(tungstenite::Message::Text(code)) => {
+                get_access_token_from_code(&code).await?;
+            }
+            _ => println!("something wierd happened"),
+        }
+    }
+
+    Ok(())
 }
