@@ -1,6 +1,7 @@
 use std::fs;
 use std::sync::Arc;
 
+use crate::db::Store;
 use crate::{discord::online_notification, ApiInfo};
 use crate::{Alert, AlertEventType, APP};
 use eyre::WrapErr;
@@ -9,13 +10,13 @@ use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-pub async fn eventsub(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
-    read(api_info).await?;
+pub async fn eventsub(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Report> {
+    read(api_info, store).await?;
 
     Ok(())
 }
 
-async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
+async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Report> {
     let alerts_sender = APP.alerts_sender.clone();
 
     let (socket, _) =
@@ -99,10 +100,18 @@ async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
                                 .as_str()
                                 .expect("follow username")
                                 .to_string();
+
                             write_recent("follow", &follower)?;
+
+                            let alert = AlertEventType::Follow { follower };
+
+                            let res = store.new_event(alert.clone()).await?;
+
+                            println!("added {sub_type} event to db {res:#?}");
+
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Follow { follower },
+                                alert_type: alert,
                             })?;
                         }
                         "channel.raid" => {
@@ -115,9 +124,16 @@ async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
                                 .expect("viewers");
 
                             write_recent("raid", &from)?;
+
+                            let alert = AlertEventType::Raid { from, viewers };
+
+                            let res = store.new_event(alert.clone()).await?;
+
+                            println!("added {sub_type} event to db {res:#?}");
+
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Raid { from, viewers },
+                                alert_type: alert,
                             })?;
                         }
                         "channel.subscribe" => {
@@ -138,20 +154,30 @@ async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
                             };
 
                             write_recent("sub", &subscriber)?;
-
                             match json_lossy["payload"]["event"]["is_gift"].as_bool() {
                                 Some(true) => {
+                                    let alert = AlertEventType::GiftedSub {
+                                        gifted: subscriber,
+                                        tier,
+                                    };
+
+                                    let res = store.new_event(alert.clone()).await?;
+
+                                    println!("added {sub_type} event to db {res:#?}");
+
                                     alerts_sender.send(Alert {
                                         new: true,
-                                        alert_type: AlertEventType::GiftedSub {
-                                            gifted: subscriber,
-                                            tier,
-                                        },
+                                        alert_type: alert,
                                     })?;
                                 }
                                 Some(false) => {
                                     let alert = AlertEventType::Subscribe { subscriber, tier };
                                     println!("Sub event:: {alert:#?}");
+
+                                    // this already gets sent as a sub message
+                                    // I want to get events only when the subscriber
+                                    // chooses to send the message
+
                                     // front_end_event_sender.send(Alert {
                                     //     new: true,
                                     //     alert_type: AlertEventType::Subscribe { subscriber, tier },
@@ -185,22 +211,25 @@ async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
                                 .expect("streak months");
 
                             write_recent("sub", &subscriber)?;
-                            if subscribed_for > 1 {
-                                alerts_sender.send(Alert {
-                                    new: true,
-                                    alert_type: AlertEventType::ReSubscribe {
-                                        subscriber,
-                                        tier,
-                                        subscribed_for,
-                                        streak,
-                                    },
-                                })?;
-                                continue;
-                            }
+
+                            let alert = if subscribed_for > 1 {
+                                AlertEventType::ReSubscribe {
+                                    subscriber,
+                                    tier,
+                                    subscribed_for,
+                                    streak,
+                                }
+                            } else {
+                                AlertEventType::Subscribe { subscriber, tier }
+                            };
+
+                            let res = store.new_event(alert.clone()).await?;
+
+                            println!("added {sub_type} event to db {res:#?}");
 
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Subscribe { subscriber, tier },
+                                alert_type: alert,
                             })?;
                         }
                         "channel.subscription.gift" => {
@@ -224,13 +253,19 @@ async fn read(api_info: Arc<ApiInfo>) -> Result<(), eyre::Report> {
                                 .as_u64()
                                 .expect("total");
 
+                            let alert = AlertEventType::GiftSub {
+                                gifter,
+                                total,
+                                tier,
+                            };
+
+                            let res = store.new_event(alert.clone()).await?;
+
+                            println!("added {sub_type} event to db {res:#?}");
+
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::GiftSub {
-                                    gifter,
-                                    total,
-                                    tier,
-                                },
+                                alert_type: alert,
                             })?;
                         }
                         "channel.channel_points_custom_reward_redemption.add" => {

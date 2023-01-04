@@ -6,8 +6,9 @@ use surrealdb::{
     Datastore, Session,
 };
 
-use crate::{collection, AlertEventType, W};
+use crate::{collection, AlertEventType, TakeVal, Wrapper};
 
+// TODO: use stuff like this for database data
 #[derive(Deserialize, Serialize)]
 struct AlertDB {
     r#type: String,
@@ -27,14 +28,10 @@ impl Store {
         Ok(Self { ds, session })
     }
 
-    pub async fn new_event(&self, alert: AlertEventType) -> eyre::Result<()> {
+    pub async fn new_event(&self, alert: AlertEventType) -> eyre::Result<String> {
         let sql = "CREATE events CONTENT $data RETURN id";
 
-        // let mut data: BTreeMap<String, Value> = collection! {
-        //     "data".into() => ,
-        // };
-
-        let mut data: Object = W(alert.into()).try_into()?;
+        let mut data: Object = Wrapper(alert.into()).try_into()?;
 
         let now = Datetime::default().timestamp_nanos();
 
@@ -55,16 +52,11 @@ impl Store {
             .map(|r| r.result)
             .expect("id not returned")?;
 
-        if let Value::Object(val) = first_val.first() {
-            println!(
-                "{:#?}",
-                val.get("id").expect("value should have an id").to_string()
-            );
+        if let Value::Object(mut val) = first_val.first() {
+            val.take_val::<String>("id")
         } else {
             return Err(eyre::eyre!("event creation returned nothing"));
         }
-
-        Ok(())
     }
 
     pub async fn get_events(&self) -> eyre::Result<Vec<Object>> {
@@ -74,9 +66,42 @@ impl Store {
 
         let res = res.into_iter().next().expect("no response");
 
-        let arr: Array = W(res.result?).try_into()?;
+        let arr: Array = Wrapper(res.result?).try_into()?;
 
-        arr.into_iter().map(|value| W(value).try_into()).collect()
+        arr.into_iter()
+            .map(|value| Wrapper(value).try_into())
+            .collect()
+    }
+
+    pub async fn get_event(&self, id: &str) -> eyre::Result<Object> {
+        let sql = format!("SELECT * FROM {}", id);
+
+        // let mut vars: BTreeMap<String, Value> = collection! {};
+
+        // let obj: Object = Wrapper(filter).try_into()?;
+        // sql.push_str(" WHERE");
+        // for (idx, (k, v)) in obj.into_iter().enumerate() {
+        //     // SELECT * FROM events WHERE id = $w0
+        //     // "w0" => "{v}"
+
+        //     let var = format!("w{idx}");
+        //     sql.push_str(&format!(" {k} = ${var}"));
+        //     vars.insert(var, v);
+        // }
+
+        let res = self.ds.execute(&sql, &self.session, None, false).await?;
+
+        let first_val = res
+            .into_iter()
+            .next()
+            .map(|r| r.result)
+            .expect("no response")?;
+
+        if let Value::Object(val) = first_val.first() {
+            Ok(val)
+        } else {
+            return Err(eyre::eyre!("Event not found"));
+        }
     }
 
     pub async fn delete_events_table(&self) -> eyre::Result<()> {
@@ -87,6 +112,8 @@ impl Store {
         let res = res.into_iter().next().expect("Did not get a response");
 
         res.result?;
+
+        println!("Deleted events table");
 
         Ok(())
     }

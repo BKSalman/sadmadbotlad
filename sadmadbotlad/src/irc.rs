@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    db::Store,
     event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
@@ -21,6 +22,7 @@ pub async fn irc_connect(
     e_sender: UnboundedSender<Event>,
     e_receiver: UnboundedReceiver<Event>,
     api_info: Arc<ApiInfo>,
+    store: Arc<Store>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
 
@@ -55,6 +57,7 @@ pub async fn irc_connect(
             alerts_sender,
             sr_sender,
             api_info,
+            store,
         ))),
     )
     .wrap_err_with(|| "irc")?;
@@ -120,6 +123,9 @@ async fn read(
                 match command.as_str() {
                     "ping" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ChatPing)))?
+                    }
+                    "db" => {
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Database)))?
                     }
                     "sr" => {
                         if args.is_empty() {

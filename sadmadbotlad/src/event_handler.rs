@@ -9,6 +9,7 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use crate::db::Store;
 use crate::song_requests::SrQueue;
 use crate::twitch::{get_title, set_title};
 use crate::{
@@ -62,6 +63,7 @@ pub enum IrcChat {
     PlaySpotify,
     StopSpotify,
     Commercial,
+    Database,
     Test(String),
 }
 
@@ -87,6 +89,7 @@ pub async fn event_handler(
     front_end_alert_sender: tokio::sync::broadcast::Sender<Alert>,
     front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     api_info: Arc<ApiInfo>,
+    store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
     let queue = Arc::new(tokio::sync::RwLock::new(SrQueue::new()));
 
@@ -380,6 +383,11 @@ pub async fn event_handler(
                         ws_sender
                             .send(Message::Text(to_irc_message(RUST_WARRANTY)))
                             .await?;
+                    }
+                    IrcChat::Database => {
+                        let events = store.get_events().await?;
+
+                        println!("{events:#?}");
                     }
                 },
             },
