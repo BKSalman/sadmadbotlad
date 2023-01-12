@@ -64,6 +64,8 @@ pub enum IrcChat {
     StopSpotify,
     Commercial,
     Database,
+    WorkingOn,
+    PixelPerfect,
     Test(String),
 }
 
@@ -134,7 +136,7 @@ pub async fn event_handler(
                     }
                     IrcChat::Ping => {
                         ws_sender
-                            .send(Message::Text(String::from("PONG :tmi.twitch.tv")))
+                            .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
                     }
                     IrcChat::Sr((sender, song)) => {
@@ -388,6 +390,16 @@ pub async fn event_handler(
                         let events = store.get_events().await?;
 
                         println!("{events:#?}");
+                    }
+                    IrcChat::WorkingOn => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message("You can check what I'm working in here: https://gist.github.com/BKSalman/090658c8f67cc94bfb9d582d5be68ed4")))
+                            .await?;
+                    }
+                    IrcChat::PixelPerfect => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message("image_res.rect")))
+                            .await?;
                     }
                 },
             },

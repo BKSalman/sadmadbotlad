@@ -281,6 +281,13 @@ async fn read(
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::RustWarranty)))?;
                         continue;
                     }
+                    "workingon" | "wo" => {
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::WorkingOn)))?;
+                    }
+                    "pixelperfect" | "pp" => {
+                        event_sender
+                            .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::PixelPerfect)))?;
+                    }
                     "test" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"
