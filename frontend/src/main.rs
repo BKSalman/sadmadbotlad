@@ -9,7 +9,7 @@ use yew_router::prelude::*;
 pub struct App {}
 
 impl Component for App {
-    type Message = frontend::Msg;
+    type Message = ();
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {

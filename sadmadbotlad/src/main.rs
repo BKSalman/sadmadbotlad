@@ -37,10 +37,10 @@ async fn run() -> Result<(), eyre::Report> {
             e_sender.clone(),
             e_receiver,
             api_info.clone(),
-            store,
+            store.clone(),
         ))),
         flatten(tokio::spawn(sr_ws_server())),
-        flatten(tokio::spawn(ws_server())),
+        flatten(tokio::spawn(ws_server(store))),
         flatten(tokio::spawn(obs_websocket(e_sender, api_info))),
         // TODO: get current spotify song every 20 secs
     )

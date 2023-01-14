@@ -302,7 +302,7 @@ pub async fn event_handler(
                         "raid" => {
                             if let Err(e) = front_end_alert_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Raid {
+                                r#type: AlertEventType::Raid {
                                     from: String::from("lmao"),
                                     viewers: 9999,
                                 },
@@ -313,7 +313,7 @@ pub async fn event_handler(
                         "follow" => {
                             if let Err(e) = front_end_alert_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Follow {
+                                r#type: AlertEventType::Follow {
                                     follower: String::from("lmao"),
                                 },
                             }) {
@@ -323,7 +323,7 @@ pub async fn event_handler(
                         "sub" => {
                             if let Err(e) = front_end_alert_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Subscribe {
+                                r#type: AlertEventType::Subscribe {
                                     subscriber: String::from("lmao"),
                                     tier: String::from("3"),
                                 },
@@ -334,7 +334,7 @@ pub async fn event_handler(
                         "resub" => {
                             if let Err(e) = front_end_alert_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::ReSubscribe {
+                                r#type: AlertEventType::ReSubscribe {
                                     subscriber: String::from("lmao"),
                                     tier: String::from("3"),
                                     subscribed_for: 4,
@@ -347,7 +347,7 @@ pub async fn event_handler(
                         "giftsub" => {
                             if let Err(e) = front_end_alert_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::GiftSub {
+                                r#type: AlertEventType::GiftSub {
                                     gifter: String::from("lmao"),
                                     total: 9999,
                                     tier: String::from("3"),
@@ -360,7 +360,7 @@ pub async fn event_handler(
                             println!("no args provided");
                             if let Err(e) = front_end_alert_sender.send(Alert {
                                 new: true,
-                                alert_type: AlertEventType::Raid {
+                                r#type: AlertEventType::Raid {
                                     from: String::from("lmao"),
                                     viewers: 9999,
                                 },

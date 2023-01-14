@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use surrealdb::sql::{Object, Value};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
     accept_async,
@@ -11,9 +12,9 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use crate::{Alert, APP};
+use crate::{db::Store, Alert, Wrapper, APP};
 
-pub async fn ws_server() -> Result<(), eyre::Report> {
+pub async fn ws_server(store: Arc<Store>) -> Result<(), eyre::Report> {
     println!("Starting WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
@@ -27,24 +28,23 @@ pub async fn ws_server() -> Result<(), eyre::Report> {
 
         println!("Peer address: {}", peer);
 
-        tokio::spawn(accept_connection(peer, stream));
+        tokio::spawn(accept_connection(peer, stream, store.clone()));
     }
 
     Ok(())
 }
 
-async fn accept_connection(peer: SocketAddr, stream: TcpStream) {
-    if let Err(e) = handle_connection(peer, stream).await {
-        match e {
-            tokio_tungstenite::tungstenite::Error::ConnectionClosed
-            | tokio_tungstenite::tungstenite::Error::Protocol(_)
-            | tokio_tungstenite::tungstenite::Error::Utf8 => (),
-            err => println!("Error processing connection: {}", err),
-        }
+async fn accept_connection(peer: SocketAddr, stream: TcpStream, store: Arc<Store>) {
+    if let Err(e) = handle_connection(peer, stream, store).await {
+        println!("Error processing connection: {}", e)
     }
 }
 
-async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
+async fn handle_connection(
+    peer: SocketAddr,
+    stream: TcpStream,
+    store: Arc<Store>,
+) -> eyre::Result<()> {
     let alerts_sender = APP.alerts_sender.clone();
 
     let alerts_receiver = alerts_sender.subscribe();
@@ -83,6 +83,30 @@ async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
                 break;
             }
             Ok(Message::Text(msg)) => {
+                if msg.starts_with("db") {
+                    println!("db was requested ");
+                    let events: Vec<Object> = store
+                        .get_events()
+                        .await?
+                        .into_iter()
+                        .map(|mut e| {
+                            e.insert("new".into(), false.into());
+                            e
+                        })
+                        .collect();
+
+                    let events = serde_json::to_string(&events)?;
+
+                    println!("{events}");
+
+                    ws_sender
+                        .lock()
+                        .await
+                        .send(Message::Text(format!("db::{}", events)))
+                        .await?;
+                    continue;
+                }
+
                 println!("text message: {msg} - from client {peer}");
                 let alert = serde_json::from_str::<Alert>(&msg).expect("alert");
                 alerts_sender.send(alert).expect("send alert");

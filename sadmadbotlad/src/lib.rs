@@ -1,4 +1,4 @@
-use std::{convert::TryInto, fs, io::Read, sync::Arc};
+use std::{collections::BTreeMap, convert::TryInto, fs, io::Read, sync::Arc};
 
 use clap::{command, Parser};
 use eyre::WrapErr;
@@ -95,6 +95,12 @@ pub enum AlertEventType {
         gifted: String,
         tier: String,
     },
+    Bits {
+        message: String,
+        is_anonymous: bool,
+        cheerer: String,
+        bits: u64,
+    },
 }
 
 impl Into<surrealdb::sql::Value> for AlertEventType {
@@ -102,20 +108,20 @@ impl Into<surrealdb::sql::Value> for AlertEventType {
         match self {
             AlertEventType::Follow { follower } => {
                 surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "follow".into(),
+                    "type".into() => "Follow".into(),
                     "follower".into() => follower.into()
                 }))
             }
             AlertEventType::Raid { from, viewers } => {
                 surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "raid".into(),
+                    "type".into() => "Raid".into(),
                     "from".into() => from.into(),
                     "viewers".into() => viewers.into(),
                 }))
             }
             AlertEventType::Subscribe { subscriber, tier } => {
                 surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "sub".into(),
+                    "type".into() => "Subscribe".into(),
                     "subscriber".into() => subscriber.into(),
                     "tier".into() => tier.into(),
                 }))
@@ -126,7 +132,7 @@ impl Into<surrealdb::sql::Value> for AlertEventType {
                 subscribed_for,
                 streak,
             } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                "type".into() => "resub".into(),
+                "type".into() => "ReSubscribe".into(),
                 "subscriber".into() => subscriber.into(),
                 "tier".into() => tier.into(),
                 "subscribed_for".into() => subscribed_for.into(),
@@ -137,18 +143,33 @@ impl Into<surrealdb::sql::Value> for AlertEventType {
                 total,
                 tier,
             } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                "type".into() => "giftsub".into(),
+                "type".into() => "GiftSub".into(),
                 "gifter".into() => gifter.into(),
                 "total".into() => total.into(),
                 "tier".into() => tier.into(),
             })),
             AlertEventType::GiftedSub { gifted, tier } => {
                 surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "giftedsub".into(),
+                    "type".into() => "GiftedSub".into(),
                     "gifted".into() => gifted.into(),
                     "tier".into() => tier.into(),
                 }))
             }
+            AlertEventType::Bits {
+                is_anonymous,
+                cheerer,
+                bits,
+                message,
+            } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
+                "type".into() => "Bits".into(),
+                "cheerer".into() => if is_anonymous {
+                    "Anonymous".into()
+                } else {
+                    cheerer.into()
+                },
+                "bits".into() => bits.into(),
+                "message".into() => message.into(),
+            })),
         }
     }
 }
@@ -156,7 +177,7 @@ impl Into<surrealdb::sql::Value> for AlertEventType {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Alert {
     new: bool,
-    alert_type: AlertEventType,
+    r#type: AlertEventType,
 }
 
 #[derive(Debug, Clone)]
@@ -285,7 +306,7 @@ impl TryFrom<Wrapper<Value>> for String {
     }
 }
 
-trait TakeImpl<T> {
+pub trait TakeImpl<T> {
     fn take_impl(&mut self, key: &str) -> eyre::Result<Option<T>>;
 }
 
@@ -317,7 +338,7 @@ impl TakeImpl<i64> for Object {
     }
 }
 
-trait TakeVal {
+pub trait TakeVal {
     fn take_val<T>(&mut self, key: &str) -> eyre::Result<T>
     where
         Self: TakeImpl<T>;

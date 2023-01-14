@@ -47,43 +47,50 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
                 };
 
                 if let Some(session) = json_lossy["payload"]["session"].as_object() {
-                    if session["status"] == "reconnecting" {
-                        println!("Reconnecting eventsub");
+                    match session["status"].as_str().expect("str") {
+                        "reconnecting" => {
+                            println!("Reconnecting eventsub");
 
-                        let (socket, _) = connect_async(
-                            Url::parse(session["reconnect_url"].as_str().expect("reconnect url"))
+                            let (socket, _) = connect_async(
+                                Url::parse(
+                                    session["reconnect_url"].as_str().expect("reconnect url"),
+                                )
                                 .expect("Parsed URL"),
-                        )
-                        .await?;
+                            )
+                            .await?;
 
-                        let (new_sender, new_receiver) = socket.split();
+                            let (new_sender, new_receiver) = socket.split();
 
-                        sender = new_sender;
+                            sender = new_sender;
 
-                        receiver = new_receiver;
+                            receiver = new_receiver;
 
-                        continue;
+                            continue;
+                        }
+                        _ => {
+                            let session_id = session["id"].as_str().expect("session id");
+
+                            online_eventsub(&api_info, session_id).await?;
+
+                            offline_eventsub(&api_info, session_id).await?;
+
+                            follow_eventsub(&api_info, session_id).await?;
+
+                            raid_eventsub(&api_info, session_id).await?;
+
+                            subscribe_eventsub(&api_info, session_id).await?;
+
+                            resubscribe_eventsub(&api_info, session_id).await?;
+
+                            giftsub_eventsub(&api_info, session_id).await?;
+
+                            rewards_eventsub(&api_info, session_id).await?;
+
+                            cheers_eventsub(&api_info, session_id).await?;
+
+                            println!("Subscribed to eventsubs");
+                        }
                     }
-
-                    let session_id = session["id"].as_str().expect("session id");
-
-                    online_eventsub(&api_info, session_id).await?;
-
-                    offline_eventsub(&api_info, session_id).await?;
-
-                    follow_eventsub(&api_info, session_id).await?;
-
-                    raid_eventsub(&api_info, session_id).await?;
-
-                    subscribe_eventsub(&api_info, session_id).await?;
-
-                    resubscribe_eventsub(&api_info, session_id).await?;
-
-                    giftsub_eventsub(&api_info, session_id).await?;
-
-                    rewards_eventsub(&api_info, session_id).await?;
-
-                    println!("Subscribed to eventsubs");
                 } else if let Some(subscription) =
                     &json_lossy["payload"]["subscription"].as_object()
                 {
@@ -111,7 +118,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: alert,
+                                r#type: alert,
                             })?;
                         }
                         "channel.raid" => {
@@ -133,7 +140,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: alert,
+                                r#type: alert,
                             })?;
                         }
                         "channel.subscribe" => {
@@ -167,7 +174,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                                     alerts_sender.send(Alert {
                                         new: true,
-                                        alert_type: alert,
+                                        r#type: alert,
                                     })?;
                                 }
                                 Some(false) => {
@@ -180,7 +187,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                                     // front_end_event_sender.send(Alert {
                                     //     new: true,
-                                    //     alert_type: AlertEventType::Subscribe { subscriber, tier },
+                                    //     r#type: AlertEventType::Subscribe { subscriber, tier },
                                     // })?;
                                 }
                                 None => {}
@@ -229,7 +236,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: alert,
+                                r#type: alert,
                             })?;
                         }
                         "channel.subscription.gift" => {
@@ -265,7 +272,42 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                             alerts_sender.send(Alert {
                                 new: true,
-                                alert_type: alert,
+                                r#type: alert,
+                            })?;
+                        }
+                        "channel.cheer" => {
+                            let message = json_lossy["payload"]["event"]["message"]
+                                .as_str()
+                                .expect("message")
+                                .to_string();
+
+                            let is_anonymous = json_lossy["payload"]["event"]["is_anonymous"]
+                                .as_bool()
+                                .expect("is_anonymous");
+
+                            let cheerer = json_lossy["payload"]["event"]["user_name"]
+                                .as_str()
+                                .expect("user_name")
+                                .to_string();
+
+                            let bits = json_lossy["payload"]["event"]["bits"]
+                                .as_u64()
+                                .expect("bits");
+
+                            let alert = AlertEventType::Bits {
+                                message,
+                                is_anonymous,
+                                cheerer,
+                                bits,
+                            };
+
+                            let res = store.new_event(alert.clone()).await?;
+
+                            println!("added {sub_type} event to db {res:#?}");
+
+                            alerts_sender.send(Alert {
+                                new: true,
+                                r#type: alert,
                             })?;
                         }
                         "channel.channel_points_custom_reward_redemption.add" => {
@@ -315,6 +357,38 @@ async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
     if res.status() != StatusCode::ACCEPTED {
         return Err(eyre::eyre!(
             "offline:: status: {} message: {}",
+            res.status(),
+            res.text().await?
+        ));
+    }
+
+    Ok(())
+}
+
+async fn cheers_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+    let http_client = reqwest::Client::new();
+
+    let res = http_client
+        .post("https://api.twitch.tv/helix/eventsub/subscriptions")
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
+        .json(&json!({
+            "type": "channel.cheer",
+            "version": "1",
+            "condition": {
+                "broadcaster_user_id": "143306668"
+            },
+            "transport": {
+                "method": "websocket",
+                "session_id": session
+            }
+        }))
+        .send()
+        .await?;
+
+    if res.status() != StatusCode::ACCEPTED {
+        return Err(eyre::eyre!(
+            "cheers:: status: {} message: {}",
             res.status(),
             res.text().await?
         ));

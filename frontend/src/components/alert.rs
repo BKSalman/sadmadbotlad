@@ -1,10 +1,10 @@
-use yew::{function_component, html, Html, Properties, Callback, AttrValue};
+use yew::{function_component, html, AttrValue, Callback, Html, Properties};
 
 #[derive(Properties, PartialEq)]
 pub struct Props {
     pub src: AttrValue,
     pub onended: Callback<yew::Event>,
-    pub alert_msg: Option<AttrValue>,
+    pub alert_msg: Option<Html>,
 }
 
 #[function_component]

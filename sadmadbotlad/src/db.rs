@@ -117,4 +117,27 @@ impl Store {
 
         Ok(())
     }
+
+    pub async fn rename_field(
+        &self,
+        field_name: String,
+        new_field_name: String,
+    ) -> eyre::Result<()> {
+        let sql = format!("UPDATE events SET {} = {}", new_field_name, field_name);
+        self.ds.execute(&sql, &self.session, None, false).await?;
+
+        let sql = format!("UPDATE events SET {} = NONE;", field_name);
+        let res = self.ds.execute(&sql, &self.session, None, false).await?;
+        println!("{:#?}", res);
+
+        Ok(())
+    }
+
+    pub async fn capitalize_value(&self) -> eyre::Result<()> {
+        let sql = format!(r#"UPDATE events SET type = "Raid" WHERE type = "raid" RETURN id;"#);
+        let res = self.ds.execute(&sql, &self.session, None, false).await?;
+        println!("{:#?}", res);
+
+        Ok(())
+    }
 }

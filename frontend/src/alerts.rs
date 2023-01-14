@@ -16,7 +16,7 @@ pub enum Msg {
 
 pub struct Alerts {
     alert: Option<String>,
-    alert_msg: Option<String>,
+    alert_msg: Option<Html>,
     ws_receiver: Rc<RefCell<SplitStream<WebSocket>>>,
 }
 
@@ -53,18 +53,20 @@ impl Component for Alerts {
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             Msg::Event(alert) => {
-                match alert.alert_type {
+                match alert.r#type {
                     AlertEventType::Follow { follower } => {
                         self.alert = Some(String::from("follow"));
-                        self.alert_msg = Some(format!("{follower} followed 😎!"));
+                        self.alert_msg = Some(html! {{format!("{follower} followed 😎!")}});
                     }
                     AlertEventType::Raid { from, viewers } => {
                         self.alert = Some(String::from("raid"));
-                        self.alert_msg = Some(format!("{from} raided with {viewers} viewers 🦀!"));
+                        self.alert_msg =
+                            Some(html! {{format!("{from} raided with {viewers} viewers 🦀!")}});
                     }
                     AlertEventType::Subscribe { subscriber, tier } => {
                         self.alert = Some(String::from("sub"));
-                        self.alert_msg = Some(format!("{subscriber} subscribed with tier {tier}!"));
+                        self.alert_msg =
+                            Some(html! {{format!("{subscriber} subscribed with tier {tier}!")}});
                     }
                     AlertEventType::GiftSub {
                         gifter,
@@ -72,7 +74,14 @@ impl Component for Alerts {
                         tier,
                     } => {
                         self.alert = Some(String::from("sub"));
-                        self.alert_msg = Some(format!("{gifter} gifted {total} tier {tier} subs!"));
+                        if total > 1 {
+                            self.alert_msg = Some(
+                                html! {{format!("{gifter} gifted {total} tier {tier} subs!")}},
+                            );
+                        } else {
+                            self.alert_msg =
+                                Some(html! {{format!("{gifter} gifted a tier {tier} sub!")}});
+                        }
                     }
                     AlertEventType::ReSubscribe {
                         subscriber,
@@ -82,18 +91,40 @@ impl Component for Alerts {
                     } => {
                         self.alert = Some(String::from("sub"));
                         if streak > 1 {
-                            self.alert_msg = Some(format!(
-                                "{subscriber} resubscribed with a streak of {streak} months!!!"
-                            ));
+                            self.alert_msg = Some(html! {
+                                {format!(
+                                    "{subscriber} resubscribed with a streak of {streak} months!!!"
+                                )}
+                            });
                             return true;
                         }
                         self.alert_msg =
-                            Some(format!("{subscriber} resubscribed with tier {tier}!"));
+                            Some(html! {{format!("{subscriber} resubscribed with tier {tier}!")}});
                     }
                     AlertEventType::GiftedSub { gifted, tier } => {
                         self.alert = Some(String::from("sub"));
-                        self.alert_msg = Some(format!("{gifted} got gifted a tier {tier} sub!"));
+                        self.alert_msg =
+                            Some(html! {{format!("{gifted} got gifted a tier {tier} sub!")}});
                     }
+                    AlertEventType::Bits {
+                        is_anonymous,
+                        cheerer,
+                        bits,
+                        message,
+                    } => {
+                        if is_anonymous {
+                            self.alert = Some(String::from("cheer"));
+                            self.alert_msg = Some(
+                                html! {<>{format!("Anonymous cheered {bits} bits!")} <br/> {message}</>},
+                            );
+                            return true;
+                        }
+                        self.alert = Some(String::from("cheer"));
+                        self.alert_msg = Some(
+                            html! {<>{format!("{cheerer} cheered {bits} bits!")} <br/> {message}</>},
+                        );
+                    }
+                    AlertEventType::Nothing => {}
                 }
                 true
             }
@@ -125,7 +156,7 @@ impl Component for Alerts {
 
         let src = format!("assets/{}.webm", alert);
         html! {
-            < Alert src={src} onended={onended} alert_msg={self.alert_msg.clone()}/>
+            <Alert src={src} onended={onended} alert_msg={self.alert_msg.clone()} />
         }
     }
 }

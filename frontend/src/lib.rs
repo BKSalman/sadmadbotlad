@@ -37,17 +37,10 @@ pub struct Queue {
     pub rear: usize,
 }
 
-pub enum Msg {
-    Follow(String),
-    Raid(String),
-    Clear(()),
-    RequestSongs,
-    SongsResponse(String),
-    Nothing,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub enum AlertEventType {
+    #[default]
+    Nothing,
     Follow {
         follower: String,
     },
@@ -74,10 +67,16 @@ pub enum AlertEventType {
         gifted: String,
         tier: String,
     },
+    Bits {
+        message: String,
+        is_anonymous: bool,
+        cheerer: String,
+        bits: u64,
+    },
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Alert {
     new: bool,
-    alert_type: AlertEventType,
+    r#type: AlertEventType,
 }
