@@ -288,6 +288,9 @@ async fn read(
                         event_sender
                             .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::PixelPerfect)))?;
                     }
+                    "discord" | "disc" => {
+                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Discord)))?;
+                    }
                     "test" => {
                         if !tags.contains("mod=1")
                             && parsed_sender.to_lowercase() != "sadmadladsalman"

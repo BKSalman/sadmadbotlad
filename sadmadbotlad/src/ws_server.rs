@@ -93,11 +93,10 @@ async fn handle_connection(
                             e.insert("new".into(), false.into());
                             e
                         })
+                        .rev()
                         .collect();
 
                     let events = serde_json::to_string(&events)?;
-
-                    println!("{events}");
 
                     ws_sender
                         .lock()

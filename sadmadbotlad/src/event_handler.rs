@@ -66,6 +66,7 @@ pub enum IrcChat {
     Database,
     WorkingOn,
     PixelPerfect,
+    Discord,
     Test(String),
 }
 
@@ -399,6 +400,11 @@ pub async fn event_handler(
                     IrcChat::PixelPerfect => {
                         ws_sender
                             .send(Message::Text(to_irc_message("image_res.rect")))
+                            .await?;
+                    }
+                    IrcChat::Discord => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
                             .await?;
                     }
                 },

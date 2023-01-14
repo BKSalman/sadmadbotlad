@@ -1904,7 +1904,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "structmap-derive",
  "surrealdb",
  "tokio",
  "tokio-retry",
@@ -2171,17 +2170,6 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
-
-[[package]]
-name = "structmap-derive"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0117ac597862ad619664a8c7b7e9addaadac3a06de5703f8b4724586b9e05986"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "subtle"
