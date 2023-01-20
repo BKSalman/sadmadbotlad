@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::{
     db::Store,
@@ -14,7 +18,10 @@ use futures_util::{
 };
 use tokio::{
     net::TcpStream,
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    sync::{
+        mpsc::{UnboundedReceiver, UnboundedSender},
+        RwLock,
+    },
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
@@ -98,7 +105,7 @@ async fn read(
 
     let event_senderc = event_sender.clone();
 
-    let vote_counter = Arc::new(tokio::sync::RwLock::new(0));
+    let voters = Arc::new(RwLock::new(HashSet::new()));
 
     while let Some(msg) = locked_ws_receiver.next().await {
         match msg {
@@ -107,18 +114,34 @@ async fn read(
                 event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Ping(ping))))?;
             }
             Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
-                let parsed_sender = parse_sender(&msg);
                 let parsed_msg = parse_message(&msg);
 
-                if !parsed_msg.starts_with(APP.config.cmd_delim) {
-                    continue;
-                }
+                let tags = msg.rsplit_once(':').expect("no chat tags").0;
+                let tags = parse_tags(tags);
 
-                let tags = msg.split_once(':').expect("no chat tags").0;
-                // ^have a proper structure for it later, and methods to extract is_mod and is_vip and shit
-                let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
-                let command = &parsed_msg[1..space_index].to_lowercase();
-                let args = &parsed_msg[space_index..].trim();
+                let parsed_sender = tags.sender();
+
+                let mut command = String::new();
+                let mut args = String::new();
+
+                if tags.get_reply().is_ok() {
+                    let first = &parsed_msg[parsed_msg.find(' ').unwrap_or(0) + 1..];
+                    if !first.starts_with(APP.config.cmd_delim) {
+                        continue;
+                    }
+
+                    let space_index = first.find(' ').unwrap_or(first.len());
+                    command.push_str(&first[1..space_index].to_lowercase());
+                    args.push_str(first[space_index..].trim());
+                } else {
+                    if !parsed_msg.starts_with(APP.config.cmd_delim) {
+                        continue;
+                    }
+
+                    let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
+                    command.push_str(&parsed_msg[1..space_index].to_lowercase());
+                    args.push_str(parsed_msg[space_index..].trim());
+                }
 
                 match command.as_str() {
                     "ping" => {
@@ -142,9 +165,7 @@ async fn read(
                         )))))?;
                     }
                     "skip" => {
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -155,22 +176,29 @@ async fn read(
                     "voteskip" => {
                         // TODO: figure out how to make every vote reset the timer (timeout??)
 
-                        let counterc = vote_counter.clone();
+                        let votersc = voters.clone();
 
-                        if *vote_counter.read().await == 0 {
+                        if voters.read().await.len() == 0 {
                             tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_secs(30)).await;
-                                *counterc.write().await = 0;
+                                tokio::time::sleep(Duration::from_secs(20)).await;
+                                votersc.write().await.clear();
                                 println!("reset counter");
                             });
                         }
 
-                        *vote_counter.write().await += 1;
+                        println!("{parsed_sender}");
 
-                        println!("{}", *vote_counter.read().await);
+                        voters.write().await.insert(parsed_sender);
 
-                        if *vote_counter.read().await >= 5 {
-                            *vote_counter.write().await = 0;
+                        println!("{}", voters.read().await.len());
+                        event_senderc
+                            .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::VoteSkip(
+                                voters.read().await.len(),
+                            ))))
+                            .expect("skip");
+
+                        if voters.read().await.len() >= 5 {
+                            voters.write().await.clear();
                             event_senderc
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SkipSr)))
                                 .expect("skip");
@@ -193,9 +221,7 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -207,9 +233,7 @@ async fn read(
                             continue;
                         };
 
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -220,9 +244,7 @@ async fn read(
                     }
                     "play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
                     "playspotify" | "playsp" => {
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -232,9 +254,7 @@ async fn read(
                     }
                     "stop" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?,
                     "stopspotify" | "stopsp" => {
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -243,9 +263,7 @@ async fn read(
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::StopSpotify)))?
                     }
                     "قوانين" => {
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -260,9 +278,7 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -291,10 +307,21 @@ async fn read(
                     "discord" | "disc" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Discord)))?;
                     }
+                    "nerd" => {
+                        if let Ok(reply) = tags.get_reply() {
+                            let message = format!("Nerd \"{}\"", reply);
+                            event_sender
+                                .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Nerd(message))))?;
+                        } else {
+                            event_sender.send(Event::IrcEvent(IrcEvent::Chat(
+                                IrcChat::Invalid(String::from(
+                                    "Reply to a message to use this command",
+                                )),
+                            )))?;
+                        }
+                    }
                     "test" => {
-                        if !tags.contains("mod=1")
-                            && parsed_sender.to_lowercase() != "sadmadladsalman"
-                        {
+                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -327,16 +354,85 @@ async fn read(
     Ok(())
 }
 
-fn parse_message(msg: &str) -> String {
-    let first = msg.trim()[(msg[1..]).find(':').unwrap() + 2..].replace("\r\n", "");
+#[derive(Debug)]
+struct Tags(HashMap<String, String>);
 
-    first[(first[1..]).find(':').unwrap() + 2..].to_string()
+impl Tags {
+    fn is_mod(&self) -> eyre::Result<bool> {
+        match self.0.get("mod") {
+            Some(r#mod) => Ok(r#mod == "1"),
+            None => Err(eyre::eyre!("No mod tag")),
+        }
+    }
+    fn get_reply(&self) -> eyre::Result<String> {
+        match self.0.get("reply-parent-msg-body") {
+            Some(msg) => Ok(Self::decode_message(msg)),
+            None => Err(eyre::eyre!("No reply tag")),
+        }
+    }
+    fn decode_message(msg: &str) -> String {
+        let mut output = String::with_capacity(msg.len());
+        // taken from https://github.com/robotty/twitch-irc-rs/blob/2e3e36b646630a0e6059896d7fece413180fb253/src/message/tags.rs#L10
+        let mut iter = msg.chars();
+        while let Some(c) = iter.next() {
+            if c == '\\' {
+                let next_char = iter.next();
+                match next_char {
+                    Some(':') => output.push(';'),   // \: escapes to ;
+                    Some('s') => output.push(' '),   // \s decodes to a space
+                    Some('\\') => output.push('\\'), // \\ decodes to \
+                    Some('r') => output.push('\r'),  // \r decodes to CR
+                    Some('n') => output.push('\n'),  // \n decodes to LF
+                    Some(c) => output.push(c),       // E.g. a\bc escapes to abc
+                    None => {}                       // Dangling \ at the end of the string
+                }
+            } else {
+                output.push(c);
+            }
+        }
+
+        output
+    }
+    fn sender(&self) -> String {
+        self.0
+            .get("display-name")
+            .expect("display name")
+            .to_string()
+    }
+}
+
+fn parse_tags(msg: &str) -> Tags {
+    msg[1..]
+        .split(";")
+        .map(|s| {
+            let (key, value) = s.split_once("=").expect("=");
+            (key.to_string(), value.to_string())
+        })
+        .collect::<HashMap<String, String>>()
+        .into()
+}
+
+impl From<HashMap<String, String>> for Tags {
+    fn from(value: HashMap<String, String>) -> Self {
+        Tags(value)
+    }
+}
+
+fn parse_message(msg: &str) -> String {
+    msg.rsplit_once(":").expect("message").1.trim().to_string()
 }
 
 fn parse_sender(msg: &str) -> String {
-    let first = &msg.trim()[(msg[1..]).find(':').unwrap() + 1..];
+    println!("{msg}");
+    let (before_msg, _) = msg.rsplit_once(":").expect("before message");
+    let (_, after_tags) = before_msg.rsplit_once(":").expect("before message");
 
-    first[1..first.find('!').unwrap()].to_string()
+    after_tags
+        .split_once("!")
+        .expect("username")
+        .0
+        .trim()
+        .to_string()
 }
 
 pub fn to_irc_message(msg: impl Into<String>) -> String {

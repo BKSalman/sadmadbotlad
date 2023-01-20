@@ -67,6 +67,8 @@ pub enum IrcChat {
     WorkingOn,
     PixelPerfect,
     Discord,
+    Nerd(String),
+    VoteSkip(usize),
     Test(String),
 }
 
@@ -141,12 +143,26 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::Sr((sender, song)) => {
-                        let message = queue
+                        match queue
                             .write()
                             .await
                             .sr(&song, sender, song_sender.clone(), api_info.clone())
-                            .await?;
-                        ws_sender.send(Message::Text(message)).await?;
+                            .await
+                        {
+                            Ok(message) => {
+                                ws_sender.send(Message::Text(message)).await?;
+                            }
+                            Err(e) => match e.to_string().as_str() {
+                                "Not A Valid Youtube URL" => {
+                                    ws_sender
+                                        .send(Message::Text(to_irc_message(
+                                            "Not a valid youtube URL",
+                                        )))
+                                        .await?;
+                                }
+                                _ => panic!("{e}"),
+                            },
+                        }
                     }
                     IrcChat::SkipSr => {
                         let mut message = String::new();
@@ -405,6 +421,18 @@ pub async fn event_handler(
                     IrcChat::Discord => {
                         ws_sender
                             .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
+                            .await?;
+                    }
+                    IrcChat::Nerd(message) => {
+                        ws_sender
+                            .send(Message::Text(to_irc_message(message)))
+                            .await?;
+                    }
+                    IrcChat::VoteSkip(voters) => {
+                        let message = format!("{voters}/5 skip votes");
+
+                        ws_sender
+                            .send(Message::Text(to_irc_message(message)))
                             .await?;
                     }
                 },

@@ -28,9 +28,9 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
     while let Some(msg) = receiver.next().await {
         match msg {
-            Ok(Message::Ping(ping)) => {
-                // println!("eventsub:: ping");
-                sender.send(Message::Pong(ping)).await?;
+            Ok(Message::Ping(_)) => {
+                println!("eventsub:: ping");
+                sender.send(Message::Pong(vec![])).await?;
             }
             Ok(msg) => {
                 let msg = msg.to_string();
@@ -47,7 +47,8 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
                 };
 
                 if let Some(session) = json_lossy["payload"]["session"].as_object() {
-                    match session["status"].as_str().expect("str") {
+                    let status = session["status"].as_str().expect("str");
+                    match status {
                         "reconnecting" => {
                             println!("Reconnecting eventsub");
 
@@ -67,7 +68,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                             continue;
                         }
-                        _ => {
+                        "connected" => {
                             let session_id = session["id"].as_str().expect("session id");
 
                             online_eventsub(&api_info, session_id).await?;
@@ -90,6 +91,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
                             println!("Subscribed to eventsubs");
                         }
+                        _ => println!("status: {status}"),
                     }
                 } else if let Some(subscription) =
                     &json_lossy["payload"]["subscription"].as_object()
