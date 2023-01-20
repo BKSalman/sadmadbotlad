@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::TryInto, fs, io::Read, sync::Arc};
+use std::{convert::TryInto, fs, io::Read, sync::Arc};
 
 use clap::{command, Parser};
 use eyre::WrapErr;
@@ -49,6 +49,12 @@ impl App {
             alerts_sender,
             sr_sender,
         }
+    }
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -103,9 +109,9 @@ pub enum AlertEventType {
     },
 }
 
-impl Into<surrealdb::sql::Value> for AlertEventType {
-    fn into(self) -> surrealdb::sql::Value {
-        match self {
+impl From<AlertEventType> for surrealdb::sql::Value {
+    fn from(value: AlertEventType) -> Self {
+        match value {
             AlertEventType::Follow { follower } => {
                 surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
                     "type".into() => "Follow".into(),

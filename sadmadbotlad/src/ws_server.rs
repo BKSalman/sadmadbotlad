@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use surrealdb::sql::{Object, Value};
+use surrealdb::sql::Object;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
     accept_async,
@@ -12,7 +12,7 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use crate::{db::Store, Alert, Wrapper, APP};
+use crate::{db::Store, Alert, APP};
 
 pub async fn ws_server(store: Arc<Store>) -> Result<(), eyre::Report> {
     println!("Starting WebSocket Server");

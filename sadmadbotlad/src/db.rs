@@ -134,7 +134,7 @@ impl Store {
     }
 
     pub async fn capitalize_value(&self) -> eyre::Result<()> {
-        let sql = format!(r#"UPDATE events SET type = "Raid" WHERE type = "raid" RETURN id;"#);
+        let sql = String::from(r#"UPDATE events SET type = "Raid" WHERE type = "raid" RETURN id;"#);
         let res = self.ds.execute(&sql, &self.session, None, false).await?;
         println!("{:#?}", res);
 

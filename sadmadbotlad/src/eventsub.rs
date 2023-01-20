@@ -29,7 +29,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Ping(_)) => {
-                println!("eventsub:: ping");
+                // println!("eventsub:: ping");
                 sender.send(Message::Pong(vec![])).await?;
             }
             Ok(msg) => {

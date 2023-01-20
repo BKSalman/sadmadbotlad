@@ -403,9 +403,9 @@ impl Tags {
 
 fn parse_tags(msg: &str) -> Tags {
     msg[1..]
-        .split(";")
+        .split(';')
         .map(|s| {
-            let (key, value) = s.split_once("=").expect("=");
+            let (key, value) = s.split_once('=').expect("=");
             (key.to_string(), value.to_string())
         })
         .collect::<HashMap<String, String>>()
@@ -419,20 +419,7 @@ impl From<HashMap<String, String>> for Tags {
 }
 
 fn parse_message(msg: &str) -> String {
-    msg.rsplit_once(":").expect("message").1.trim().to_string()
-}
-
-fn parse_sender(msg: &str) -> String {
-    println!("{msg}");
-    let (before_msg, _) = msg.rsplit_once(":").expect("before message");
-    let (_, after_tags) = before_msg.rsplit_once(":").expect("before message");
-
-    after_tags
-        .split_once("!")
-        .expect("username")
-        .0
-        .trim()
-        .to_string()
+    msg.rsplit_once(':').expect("message").1.trim().to_string()
 }
 
 pub fn to_irc_message(msg: impl Into<String>) -> String {
