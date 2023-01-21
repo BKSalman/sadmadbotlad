@@ -158,14 +158,13 @@ async fn read(
                             continue;
                         }
 
-                        let song = parsed_msg.splitn(2, ' ').collect::<Vec<&str>>()[1];
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Sr((
                             parsed_sender,
-                            song.to_string(),
+                            args.to_string(),
                         )))))?;
                     }
                     "skip" => {
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -185,8 +184,6 @@ async fn read(
                                 println!("reset counter");
                             });
                         }
-
-                        println!("{parsed_sender}");
 
                         voters.write().await.insert(parsed_sender);
 
@@ -221,7 +218,7 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -233,7 +230,7 @@ async fn read(
                             continue;
                         };
 
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -244,7 +241,7 @@ async fn read(
                     }
                     "play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
                     "playspotify" | "playsp" => {
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -254,7 +251,7 @@ async fn read(
                     }
                     "stop" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?,
                     "stopspotify" | "stopsp" => {
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -263,7 +260,7 @@ async fn read(
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::StopSpotify)))?
                     }
                     "قوانين" => {
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -278,7 +275,7 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -321,7 +318,7 @@ async fn read(
                         }
                     }
                     "test" => {
-                        if !tags.is_mod()? && parsed_sender.to_lowercase() != "sadmadladsalman" {
+                        if !tags.is_mod()? && !tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -362,6 +359,12 @@ impl Tags {
         match self.0.get("mod") {
             Some(r#mod) => Ok(r#mod == "1"),
             None => Err(eyre::eyre!("No mod tag")),
+        }
+    }
+    fn is_broadcaster(&self) -> eyre::Result<bool> {
+        match self.0.get("badges") {
+            Some(badges) => Ok(badges.contains("broadcaster")),
+            None => Err(eyre::eyre!("No badges tag")),
         }
     }
     fn get_reply(&self) -> eyre::Result<String> {
@@ -406,7 +409,14 @@ fn parse_tags(msg: &str) -> Tags {
         .split(';')
         .map(|s| {
             let (key, value) = s.split_once('=').expect("=");
-            (key.to_string(), value.to_string())
+            (
+                key.to_string(),
+                if value.contains("PRIVMSG") {
+                    String::from("")
+                } else {
+                    value.to_string()
+                },
+            )
         })
         .collect::<HashMap<String, String>>()
         .into()
@@ -419,7 +429,13 @@ impl From<HashMap<String, String>> for Tags {
 }
 
 fn parse_message(msg: &str) -> String {
-    msg.rsplit_once(':').expect("message").1.trim().to_string()
+    let (_, after_tags) = msg.split_once(':').expect("channel and after");
+    after_tags
+        .split_once(':')
+        .expect("message")
+        .1
+        .trim()
+        .to_string()
 }
 
 pub fn to_irc_message(msg: impl Into<String>) -> String {
