@@ -60,7 +60,7 @@ impl Store {
     }
 
     pub async fn get_events(&self) -> eyre::Result<Vec<Object>> {
-        let sql = "SELECT * from events";
+        let sql = "SELECT * from events ORDER BY ctime ASC";
 
         let res = self.ds.execute(sql, &self.session, None, false).await?;
 

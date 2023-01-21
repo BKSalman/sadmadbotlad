@@ -194,7 +194,7 @@ impl Component for Activity {
             <div class="event-list">
                 {
                     self.alerts.clone()
-                    .into_iter().rev().map(|s| {
+                    .into_iter().map(|s| {
                         let sc = s.clone();
                         let on_click = {
                             let cbc = cb.clone();
