@@ -1,4 +1,3 @@
-use reqwest::StatusCode;
 use serde::Serialize;
 
 use crate::{twitch::TwitchApiResponse, ApiInfo};

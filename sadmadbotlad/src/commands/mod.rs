@@ -1,6 +1,7 @@
 pub mod current_song;
 pub mod ping;
 pub mod queue;
+pub mod seventv;
 pub mod skip_sr;
 pub mod sr;
 

@@ -9,32 +9,34 @@ use crate::{irc::to_irc_message, song_requests::SrQueue};
 
 use super::Command;
 
-pub struct SkipSrCommand {
+pub struct CurrentSongCommand {
     queue: Arc<RwLock<SrQueue>>,
 }
 
-impl SkipSrCommand {
+impl CurrentSongCommand {
     pub fn new(queue: Arc<RwLock<SrQueue>>) -> Self {
         Self { queue }
     }
 }
 
 #[async_trait]
-impl Command for SkipSrCommand {
+impl Command for CurrentSongCommand {
     async fn execute(
         &self,
         ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ) -> eyre::Result<()> {
-        let mut message = String::new();
-        if let Some(song) = &self.queue.read().await.current_song {
-            if self.mpv.playlist_next_force().is_ok() {
-                message = to_irc_message(format!("Skipped: {}", song.title));
-            }
+        if let Some(current_song) = self.queue.read().await.current_song.as_ref() {
+            ws_sender
+                .send(Message::Text(to_irc_message(format!(
+                    "Current song: {} - by {}",
+                    current_song.title, current_song.user,
+                ))))
+                .await?;
         } else {
-            message = to_irc_message("No song playing");
+            ws_sender
+                .send(Message::Text(to_irc_message("No song playing")))
+                .await?;
         }
-
-        ws_sender.send(Message::Text(message)).await?;
         Ok(())
     }
 }

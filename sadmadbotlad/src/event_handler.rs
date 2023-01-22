@@ -10,9 +10,11 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use crate::commands::current_song::CurrentSongCommand;
 use crate::commands::execute;
 use crate::commands::ping::PingCommand;
 use crate::commands::queue::QueueCommand;
+use crate::commands::seventv::SevenTvCommand;
 use crate::commands::skip_sr::SkipSrCommand;
 use crate::commands::sr::SrCommand;
 use crate::db::Store;
@@ -75,6 +77,7 @@ pub enum IrcChat {
     Discord,
     Nerd(String),
     VoteSkip(usize),
+    SevenTv(String),
     Test(String),
 }
 
@@ -168,18 +171,7 @@ pub async fn event_handler(
                         execute(QueueCommand::new(queue.clone()), &mut ws_sender).await?
                     }
                     IrcChat::CurrentSong => {
-                        if let Some(current_song) = queue.read().await.current_song.as_ref() {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(format!(
-                                    "Current song: {} - by {}",
-                                    current_song.title, current_song.user,
-                                ))))
-                                .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("No song playing")))
-                                .await?;
-                        }
+                        execute(CurrentSongCommand::new(queue.clone()), &mut ws_sender).await?
                     }
                     IrcChat::CurrentSongSpotify => {
                         let cmd = Command::new("./scripts/current_spotify_song.sh").output()?;
@@ -414,6 +406,9 @@ pub async fn event_handler(
                         ws_sender
                             .send(Message::Text(to_irc_message(message)))
                             .await?;
+                    }
+                    IrcChat::SevenTv(query) => {
+                        execute(SevenTvCommand::new(query), &mut ws_sender).await?
                     }
                 },
             },
