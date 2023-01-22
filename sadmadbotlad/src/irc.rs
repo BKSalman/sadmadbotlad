@@ -119,7 +119,7 @@ async fn read(
                 let mut command = String::new();
                 let mut args = String::new();
 
-                if parsed_msg.tags.get_reply().is_ok() {
+                if parsed_msg.tags.has_tags() {
                     let first =
                         &parsed_msg.message[parsed_msg.message.find(' ').unwrap_or(0) + 1..];
                     if !first.starts_with(APP.config.cmd_delim) {
@@ -356,6 +356,11 @@ async fn read(
 struct Tags(HashMap<String, String>);
 
 impl Tags {
+    fn has_tags(&self) -> bool {
+        // TODO: this needs to be better
+        // arbetrary number
+        self.0.len() > 10
+    }
     fn is_mod(&self) -> eyre::Result<bool> {
         match self.0.get("mod") {
             Some(r#mod) => Ok(r#mod == "1"),
@@ -376,7 +381,8 @@ impl Tags {
     }
     fn decode_message(msg: &str) -> String {
         let mut output = String::with_capacity(msg.len());
-        // taken from https://github.com/robotty/twitch-irc-rs/blob/2e3e36b646630a0e6059896d7fece413180fb253/src/message/tags.rs#L10
+        // taken from:
+        // https://github.com/robotty/twitch-irc-rs/blob/2e3e36b646630a0e6059896d7fece413180fb253/src/message/tags.rs#L10
         let mut iter = msg.chars();
         while let Some(c) = iter.next() {
             if c == '\\' {
@@ -436,7 +442,7 @@ fn parse_irc(msg: &str) -> TwitchIrcMessage {
         .trim()
         .to_string();
 
-    let tags = tags
+    let tags = tags[1..]
         .split(';')
         .map(|s| {
             let (key, value) = s.split_once('=').expect("=");
@@ -458,13 +464,3 @@ fn parse_irc(msg: &str) -> TwitchIrcMessage {
         sender,
     }
 }
-
-// fn parse_message(msg: &str) -> String {
-//     let (_, after_tags) = msg.split_once(':').expect("channel and after");
-//     after_tags
-//         .split_once(':')
-//         .expect("message")
-//         .1
-//         .trim()
-//         .to_string()
-// }
