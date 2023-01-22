@@ -45,9 +45,15 @@ pub async fn online_notification(api_info: &ApiInfo) -> Result<(), eyre::Report>
         .header("Client-Id", api_info.client_id.clone())
         .send()
         .await?;
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("Unauthorized"));
+
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "status: {} :: message: {}",
+            res.status(),
+            res.text().await?
+        ));
     }
+
     let res = res.json::<TwitchApiResponse>().await?;
 
     let timestamp = chrono::DateTime::parse_from_rfc3339(&res.data[0].started_at)?.timestamp();

@@ -3,6 +3,7 @@ use futures_util::{sink::SinkExt, StreamExt};
 use libmpv::Mpv;
 use std::process::Command;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{Sender, UnboundedReceiver},
@@ -91,19 +92,19 @@ pub async fn event_handler(
     mut recv: UnboundedReceiver<Event>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
-    front_end_alert_sender: tokio::sync::broadcast::Sender<Alert>,
-    front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+    alert_sender: tokio::sync::broadcast::Sender<Alert>,
+    sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
-    let queue = Arc::new(tokio::sync::RwLock::new(SrQueue::new()));
+    let queue = Arc::new(RwLock::new(SrQueue::new()));
 
     irc_login(&mut ws_sender, &api_info).await?;
 
-    let sr_setupc = queue.clone();
+    let queuec = queue.clone();
 
     let t_handle = tokio::spawn(async move {
-        front_end_receiver(front_end_sr_sender, sr_setupc).await;
+        front_end_receiver(sr_sender, queuec).await;
     });
 
     while let Some(event) = recv.recv().await {
@@ -317,7 +318,7 @@ pub async fn event_handler(
                     }
                     IrcChat::Test(test) => match test.to_lowercase().as_str() {
                         "raid" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
+                            if let Err(e) = alert_sender.send(Alert {
                                 new: true,
                                 r#type: AlertEventType::Raid {
                                     from: String::from("lmao"),
@@ -328,7 +329,7 @@ pub async fn event_handler(
                             }
                         }
                         "follow" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
+                            if let Err(e) = alert_sender.send(Alert {
                                 new: true,
                                 r#type: AlertEventType::Follow {
                                     follower: String::from("lmao"),
@@ -338,7 +339,7 @@ pub async fn event_handler(
                             }
                         }
                         "sub" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
+                            if let Err(e) = alert_sender.send(Alert {
                                 new: true,
                                 r#type: AlertEventType::Subscribe {
                                     subscriber: String::from("lmao"),
@@ -349,7 +350,7 @@ pub async fn event_handler(
                             }
                         }
                         "resub" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
+                            if let Err(e) = alert_sender.send(Alert {
                                 new: true,
                                 r#type: AlertEventType::ReSubscribe {
                                     subscriber: String::from("lmao"),
@@ -362,7 +363,7 @@ pub async fn event_handler(
                             }
                         }
                         "giftsub" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
+                            if let Err(e) = alert_sender.send(Alert {
                                 new: true,
                                 r#type: AlertEventType::GiftSub {
                                     gifter: String::from("lmao"),
@@ -375,7 +376,7 @@ pub async fn event_handler(
                         }
                         _ => {
                             println!("no args provided");
-                            if let Err(e) = front_end_alert_sender.send(Alert {
+                            if let Err(e) = alert_sender.send(Alert {
                                 new: true,
                                 r#type: AlertEventType::Raid {
                                     from: String::from("lmao"),
@@ -472,9 +473,9 @@ async fn front_end_receiver(
     front_end_events_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     sr_setup: Arc<tokio::sync::RwLock<SrQueue>>,
 ) {
-    let mut front_end_events_receiver = front_end_events_sender.subscribe();
+    let mut events_receiver = front_end_events_sender.subscribe();
 
-    while let Ok(msg) = front_end_events_receiver.recv().await {
+    while let Ok(msg) = events_receiver.recv().await {
         match msg {
             SrFrontEndEvent::QueueRequest => {
                 front_end_events_sender
