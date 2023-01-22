@@ -116,36 +116,19 @@ async fn read(
             Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                 let parsed_msg = parse_irc(&msg);
 
-                let mut command = String::new();
-                let mut args = String::new();
-
-                if parsed_msg.tags.has_tags() {
-                    let first =
-                        &parsed_msg.message[parsed_msg.message.find(' ').unwrap_or(0) + 1..];
-                    if !first.starts_with(APP.config.cmd_delim) {
-                        continue;
-                    }
-
-                    let space_index = first.find(' ').unwrap_or(first.len());
-                    command.push_str(&first[1..space_index].to_lowercase());
-                    args.push_str(first[space_index..].trim());
-                } else {
-                    if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
-                        continue;
-                    }
-
-                    let space_index = parsed_msg
-                        .message
-                        .find(' ')
-                        .unwrap_or(parsed_msg.message.len());
-                    command.push_str(&parsed_msg.message[1..space_index].to_lowercase());
-                    args.push_str(parsed_msg.message[space_index..].trim());
+                if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
+                    continue;
                 }
 
-                match command.as_str() {
-                    "ping" => {
-                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ChatPing)))?
-                    }
+                let (command, args) = parsed_msg
+                    .message
+                    .split_once(' ')
+                    .unwrap_or_else(|| (&parsed_msg.message, ""));
+
+                match &command[1..] {
+                    "ping" | "وكز" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(
+                        IrcChat::ChatPing(command.to_string()),
+                    )))?,
                     "db" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Database)))?
                     }
@@ -316,8 +299,9 @@ async fn read(
                             )))?;
                         }
                     }
-                    "7tv" => event_sender
-                        .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::SevenTv(args))))?,
+                    "7tv" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(
+                        IrcChat::SevenTv(args.to_string()),
+                    )))?,
                     "test" => {
                         if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
@@ -356,11 +340,6 @@ async fn read(
 struct Tags(HashMap<String, String>);
 
 impl Tags {
-    fn has_tags(&self) -> bool {
-        // TODO: this needs to be better
-        // arbetrary number
-        self.0.len() > 10
-    }
     fn is_mod(&self) -> eyre::Result<bool> {
         match self.0.get("mod") {
             Some(r#mod) => Ok(r#mod == "1"),

@@ -52,7 +52,7 @@ pub enum IrcWs {
 pub enum IrcChat {
     Invalid(String),
     Ping,
-    ChatPing,
+    ChatPing(String),
     Sr((String, String)),
     SkipSr,
     Queue,
@@ -143,7 +143,9 @@ pub async fn event_handler(
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
                     }
-                    IrcChat::ChatPing => execute(PingCommand, &mut ws_sender).await?,
+                    IrcChat::ChatPing(command) => {
+                        execute(PingCommand::new(command), &mut ws_sender).await?
+                    }
                     IrcChat::Sr((sender, song)) => {
                         execute(
                             SrCommand::new(
