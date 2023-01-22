@@ -1,15 +1,26 @@
-use tokio::sync::mpsc::UnboundedSender;
+use async_trait::async_trait;
+use futures_util::{stream::SplitSink, SinkExt};
+use tokio::net::TcpStream;
+use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::event_handler::Event;
+use crate::{irc::to_irc_message, APP};
 
 use super::Command;
 
-struct Ping {
-    // ws_sender: ,
-}
+pub struct PingCommand;
 
-impl Command for Ping {
-    fn execute(&self, sender: UnboundedSender<Event>) -> eyre::Result<()> {
+#[async_trait]
+impl Command for PingCommand {
+    async fn execute(
+        &self,
+        ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    ) -> eyre::Result<()> {
+        ws_sender
+            .send(Message::Text(to_irc_message(format!(
+                "{}pong",
+                APP.config.cmd_delim
+            ))))
+            .await?;
         Ok(())
     }
 }

@@ -64,7 +64,7 @@ impl SrQueue {
     pub async fn sr(
         &mut self,
         irc_msg: &str,
-        irc_sender: impl Into<String>,
+        irc_sender: &str,
         song_sender: Sender<SongRequest>,
         api_info: Arc<ApiInfo>,
     ) -> Result<String, eyre::Report> {

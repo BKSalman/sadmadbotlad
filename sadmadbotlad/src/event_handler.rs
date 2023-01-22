@@ -10,6 +10,11 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use crate::commands::execute;
+use crate::commands::ping::PingCommand;
+use crate::commands::queue::QueueCommand;
+use crate::commands::skip_sr::SkipSrCommand;
+use crate::commands::sr::SrCommand;
 use crate::db::Store;
 use crate::song_requests::SrQueue;
 use crate::twitch::{get_title, set_title};
@@ -17,7 +22,7 @@ use crate::{
     irc::{irc_login, to_irc_message},
     song_requests::SongRequest,
 };
-use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent, APP};
+use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent};
 
 const RULES: &str = include_str!("../rules.txt");
 const WARRANTY: &str = include_str!("../warranty.txt");
@@ -130,63 +135,37 @@ pub async fn event_handler(
                     }
                 },
                 IrcEvent::Chat(event) => match event {
-                    IrcChat::ChatPing => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!(
-                                "{}pong",
-                                APP.config.cmd_delim
-                            ))))
-                            .await?;
-                    }
                     IrcChat::Ping => {
                         ws_sender
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
                     }
+                    IrcChat::ChatPing => execute(PingCommand, &mut ws_sender).await?,
                     IrcChat::Sr((sender, song)) => {
-                        match queue
-                            .write()
-                            .await
-                            .sr(&song, sender, song_sender.clone(), api_info.clone())
-                            .await
-                        {
-                            Ok(message) => {
-                                ws_sender.send(Message::Text(message)).await?;
-                            }
-                            Err(e) => match e.to_string().as_str() {
-                                "Not A Valid Youtube URL" => {
-                                    ws_sender
-                                        .send(Message::Text(to_irc_message(
-                                            "Not a valid youtube URL",
-                                        )))
-                                        .await?;
-                                }
-                                _ => panic!("{e}"),
-                            },
-                        }
+                        execute(
+                            SrCommand::new(
+                                queue.clone(),
+                                song,
+                                sender,
+                                song_sender.clone(),
+                                api_info.clone(),
+                            ),
+                            &mut ws_sender,
+                        )
+                        .await?;
                     }
                     IrcChat::SkipSr => {
-                        let mut message = String::new();
-                        if let Some(song) = &queue.read().await.current_song {
-                            if mpv.playlist_next_force().is_ok() {
-                                message = to_irc_message(format!("Skipped: {}", song.title));
-                            }
-                        } else {
-                            message = to_irc_message("No song playing");
-                        }
-
-                        ws_sender.send(Message::Text(message)).await?;
+                        execute(
+                            SkipSrCommand::new(queue.clone(), mpv.clone()),
+                            &mut ws_sender,
+                        )
+                        .await?
                     }
                     IrcChat::Invalid(e) => {
                         ws_sender.send(Message::Text(to_irc_message(e))).await?;
                     }
                     IrcChat::Queue => {
-                        println!("{:#?}", queue.read().await.queue);
-                        ws_sender
-                            .send(Message::Text(to_irc_message(
-                                "Check the queue at: https://f5rfm.bksalman.com",
-                            )))
-                            .await?;
+                        execute(QueueCommand::new(queue.clone()), &mut ws_sender).await?
                     }
                     IrcChat::CurrentSong => {
                         if let Some(current_song) = queue.read().await.current_song.as_ref() {

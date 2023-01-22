@@ -1,13 +1,27 @@
-use tokio::sync::mpsc::UnboundedSender;
+pub mod current_song;
+pub mod ping;
+pub mod queue;
+pub mod skip_sr;
+pub mod sr;
 
-use crate::event_handler::Event;
+use async_trait::async_trait;
+use futures_util::stream::SplitSink;
+use tokio::net::TcpStream;
+use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-trait Command {
-    fn execute(&self, sender: UnboundedSender<Event>) -> eyre::Result<()>;
+#[async_trait]
+pub trait Command {
+    async fn execute(
+        &self,
+        ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    ) -> eyre::Result<()>;
 }
 
-fn execute(command: impl Command, sender: UnboundedSender<Event>) -> eyre::Result<()> {
-    command.execute(sender)?;
+pub async fn execute(
+    command: impl Command,
+    ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+) -> eyre::Result<()> {
+    command.execute(ws_sender).await?;
 
     Ok(())
 }
