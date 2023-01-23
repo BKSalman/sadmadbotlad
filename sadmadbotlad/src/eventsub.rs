@@ -8,19 +8,15 @@ use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
-use tokio::sync::RwLock;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-pub async fn eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    store: Arc<Store>,
-) -> Result<(), eyre::Report> {
+pub async fn eventsub(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Report> {
     read(api_info, store).await?;
 
     Ok(())
 }
 
-async fn read(api_info: Arc<RwLock<ApiInfo>>, store: Arc<Store>) -> Result<(), eyre::Report> {
+async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Report> {
     let alerts_sender = APP.alerts_sender.clone();
 
     let (socket, _) =
@@ -75,23 +71,23 @@ async fn read(api_info: Arc<RwLock<ApiInfo>>, store: Arc<Store>) -> Result<(), e
                         "connected" => {
                             let session_id = session["id"].as_str().expect("session id");
 
-                            online_eventsub(api_info.clone(), session_id).await?;
+                            online_eventsub(&api_info, session_id).await?;
 
-                            offline_eventsub(api_info.clone(), session_id).await?;
+                            offline_eventsub(&api_info, session_id).await?;
 
-                            follow_eventsub(api_info.clone(), session_id).await?;
+                            follow_eventsub(&api_info, session_id).await?;
 
-                            raid_eventsub(api_info.clone(), session_id).await?;
+                            raid_eventsub(&api_info, session_id).await?;
 
-                            subscribe_eventsub(api_info.clone(), session_id).await?;
+                            subscribe_eventsub(&api_info, session_id).await?;
 
-                            resubscribe_eventsub(api_info.clone(), session_id).await?;
+                            resubscribe_eventsub(&api_info, session_id).await?;
 
-                            giftsub_eventsub(api_info.clone(), session_id).await?;
+                            giftsub_eventsub(&api_info, session_id).await?;
 
-                            rewards_eventsub(api_info.clone(), session_id).await?;
+                            rewards_eventsub(&api_info, session_id).await?;
 
-                            cheers_eventsub(api_info.clone(), session_id).await?;
+                            cheers_eventsub(&api_info, session_id).await?;
 
                             println!("Subscribed to eventsubs");
                         }
@@ -106,7 +102,7 @@ async fn read(api_info: Arc<RwLock<ApiInfo>>, store: Arc<Store>) -> Result<(), e
 
                     match sub_type {
                         "stream.online" => {
-                            online_notification(api_info.clone()).await?;
+                            online_notification(&api_info).await?;
                         }
                         "channel.follow" => {
                             let follower = json_lossy["payload"]["event"]["user_name"]
@@ -339,16 +335,13 @@ async fn read(api_info: Arc<RwLock<ApiInfo>>, store: Arc<Store>) -> Result<(), e
     Ok(())
 }
 
-async fn offline_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "stream.offline",
             "version": "1",
@@ -374,16 +367,13 @@ async fn offline_eventsub(
     Ok(())
 }
 
-async fn cheers_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn cheers_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.cheer",
             "version": "1",
@@ -409,16 +399,13 @@ async fn cheers_eventsub(
     Ok(())
 }
 
-async fn online_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "stream.online",
             "version": "1",
@@ -444,16 +431,13 @@ async fn online_eventsub(
     Ok(())
 }
 
-async fn follow_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.follow",
             "version": "1",
@@ -479,13 +463,13 @@ async fn follow_eventsub(
     Ok(())
 }
 
-async fn raid_eventsub(api_info: Arc<RwLock<ApiInfo>>, session: &str) -> Result<(), eyre::Report> {
+async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.raid",
             "version": "1",
@@ -511,16 +495,13 @@ async fn raid_eventsub(api_info: Arc<RwLock<ApiInfo>>, session: &str) -> Result<
     Ok(())
 }
 
-async fn subscribe_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn subscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.subscribe",
             "version": "1",
@@ -546,16 +527,13 @@ async fn subscribe_eventsub(
     Ok(())
 }
 
-async fn resubscribe_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn resubscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.subscription.message",
             "version": "1",
@@ -581,16 +559,13 @@ async fn resubscribe_eventsub(
     Ok(())
 }
 
-async fn giftsub_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn giftsub_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.subscription.gift",
             "version": "1",
@@ -616,16 +591,13 @@ async fn giftsub_eventsub(
     Ok(())
 }
 
-async fn rewards_eventsub(
-    api_info: Arc<RwLock<ApiInfo>>,
-    session: &str,
-) -> Result<(), eyre::Report> {
+async fn rewards_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.channel_points_custom_reward_redemption.add",
             "version": "1",

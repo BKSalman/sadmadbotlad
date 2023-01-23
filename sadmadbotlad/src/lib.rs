@@ -223,25 +223,6 @@ impl ApiInfo {
             }
         }
     }
-    pub async fn get_token(&mut self) -> eyre::Result<String> {
-        let http_client = reqwest::Client::new();
-
-        let res = http_client
-            .get("https://id.twitch.tv/oauth2/validate")
-            .header(
-                "Authorization",
-                format!("OAuth {}", self.twitch_access_token),
-            )
-            .send()
-            .await?;
-
-        if !res.status().is_success() {
-            println!("token expired. Refreshing...");
-            refresh_access_token(self).await?;
-        }
-
-        Ok(self.twitch_access_token.clone())
-    }
 }
 
 pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, eyre::Report> {

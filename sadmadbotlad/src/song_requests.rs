@@ -4,7 +4,6 @@ use libmpv::events::{Event, PropertyData};
 use libmpv::{FileState, Mpv};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
-use tokio::sync::RwLock;
 
 use crate::irc::to_irc_message;
 use crate::{youtube, ApiInfo};
@@ -67,7 +66,7 @@ impl SrQueue {
         irc_msg: &str,
         irc_sender: &str,
         song_sender: Sender<SongRequest>,
-        api_info: Arc<RwLock<ApiInfo>>,
+        api_info: Arc<ApiInfo>,
     ) -> Result<String, eyre::Report> {
         // request is a video title
         if !irc_msg.starts_with("https://") {

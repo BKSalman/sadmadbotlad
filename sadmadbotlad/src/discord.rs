@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
 use serde::Serialize;
-use tokio::sync::RwLock;
 
 use crate::{twitch::TwitchApiResponse, ApiInfo};
 
@@ -38,13 +35,13 @@ struct Message {
     embeds: Vec<Embed>,
 }
 
-pub async fn online_notification(api_info: Arc<RwLock<ApiInfo>>) -> Result<(), eyre::Report> {
+pub async fn online_notification(api_info: &ApiInfo) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
-        .bearer_auth(api_info.write().await.get_token().await?)
-        .header("Client-Id", api_info.read().await.client_id.clone())
+        .bearer_auth(api_info.twitch_access_token.clone())
+        .header("Client-Id", api_info.client_id.clone())
         .send()
         .await?;
 
@@ -93,10 +90,7 @@ pub async fn online_notification(api_info: Arc<RwLock<ApiInfo>>) -> Result<(), e
 
     http_client
         .post("https://discordapp.com/api/channels/575540932028530699/messages")
-        .header(
-            "authorization",
-            format!("Bot {}", api_info.read().await.discord_token),
-        )
+        .header("authorization", format!("Bot {}", api_info.discord_token))
         // .bearer_auth(format!("Bot {}", discord_token))
         .json(&message)
         .send()

@@ -21,7 +21,7 @@ pub struct SrCommand {
     song: String,
     sender: String,
     song_sender: Sender<SongRequest>,
-    api_info: Arc<RwLock<ApiInfo>>,
+    api_info: Arc<ApiInfo>,
 }
 
 impl SrCommand {
@@ -30,7 +30,7 @@ impl SrCommand {
         song: String,
         sender: String,
         song_sender: Sender<SongRequest>,
-        api_info: Arc<RwLock<ApiInfo>>,
+        api_info: Arc<ApiInfo>,
     ) -> Self {
         SrCommand {
             queue,
