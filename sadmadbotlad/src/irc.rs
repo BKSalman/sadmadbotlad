@@ -116,14 +116,25 @@ async fn read(
             Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                 let parsed_msg = parse_irc(&msg);
 
-                if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
-                    continue;
-                }
+                let (command, args) = if parsed_msg.tags.get_reply().is_ok() {
+                    // remove mention
+                    let (_, message) = parsed_msg.message.split_once(' ').expect("remove mention");
 
-                let (command, args) = parsed_msg
-                    .message
-                    .split_once(' ')
-                    .unwrap_or_else(|| (&parsed_msg.message, ""));
+                    if !message.starts_with(APP.config.cmd_delim) {
+                        continue;
+                    }
+
+                    message.split_once(' ').unwrap_or_else(|| (&message, ""))
+                } else {
+                    if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
+                        continue;
+                    }
+
+                    parsed_msg
+                        .message
+                        .split_once(' ')
+                        .unwrap_or_else(|| (&parsed_msg.message, ""))
+                };
 
                 match &command[1..] {
                     "ping" | "وكز" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(
