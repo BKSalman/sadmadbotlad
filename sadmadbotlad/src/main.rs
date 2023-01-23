@@ -10,6 +10,7 @@ use sadmadbotlad::{ApiInfo, APP};
 use sadmadbotlad::{flatten, ws_server::ws_server};
 
 use sadmadbotlad::{eventsub::eventsub, install_eyre, irc::irc_connect};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
@@ -24,7 +25,7 @@ async fn main() -> Result<(), eyre::Report> {
 }
 
 async fn run() -> Result<(), eyre::Report> {
-    let api_info = Arc::new(ApiInfo::new().await.expect("Api info failed"));
+    let api_info = Arc::new(RwLock::new(ApiInfo::new().await.expect("Api info failed")));
 
     let (e_sender, e_receiver) = tokio::sync::mpsc::unbounded_channel::<event_handler::Event>();
 

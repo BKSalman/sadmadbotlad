@@ -4,6 +4,7 @@ use crate::ApiInfo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use reqwest::StatusCode;
 use serde_json::Value;
+use tokio::sync::RwLock;
 
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
 
@@ -24,14 +25,18 @@ pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
     return Err(eyre::eyre!("Not A Valid Youtube URL"));
 }
 
-pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<String, eyre::Report> {
+pub async fn video_title(
+    video_id: &str,
+    api_info: Arc<RwLock<ApiInfo>>,
+) -> Result<String, eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
         .get(format!(
             "https://youtube.googleapis.com/youtube/v3/\
                                     search?part=snippet&maxResults=1&q={}&type=video&key={}",
-            video_id, api_info.google_api_key
+            video_id,
+            api_info.read().await.google_api_key
         ))
         .send()
         .await?;
@@ -56,7 +61,7 @@ pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<Strin
 
 pub async fn video_info(
     video_query: &str,
-    api_info: Arc<ApiInfo>,
+    api_info: Arc<RwLock<ApiInfo>>,
 ) -> Result<VideoInfo, eyre::Report> {
     let http_client = reqwest::Client::new();
 
@@ -67,7 +72,7 @@ pub async fn video_info(
             "https://youtube.googleapis.com/youtube/v3/\
                                     search?part=snippet&maxResults=1&q={}&type=video&key={}",
             utf8_percent_encode(video_query, FRAGMENT),
-            api_info.google_api_key
+            api_info.read().await.google_api_key
         ))
         .send()
         .await?;

@@ -102,12 +102,12 @@ pub async fn event_handler(
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     alert_sender: tokio::sync::broadcast::Sender<Alert>,
     sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
-    api_info: Arc<ApiInfo>,
+    api_info: Arc<RwLock<ApiInfo>>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
     let queue = Arc::new(RwLock::new(SrQueue::new()));
 
-    irc_login(&mut ws_sender, &api_info).await?;
+    irc_login(&mut ws_sender, &*api_info.read().await).await?;
 
     let queuec = queue.clone();
 
@@ -134,7 +134,7 @@ pub async fn event_handler(
                         let mut locked_ws_receiver = ws_receiver.lock().await;
                         *locked_ws_receiver = receiver;
 
-                        irc_login(&mut ws_sender, &api_info).await?;
+                        irc_login(&mut ws_sender, &*api_info.read().await).await?;
                     }
                 },
                 IrcEvent::Chat(event) => match event {
@@ -265,7 +265,7 @@ pub async fn event_handler(
                         }
                     }
                     IrcChat::GetTitle => {
-                        let title = get_title(&api_info).await?;
+                        let title = get_title(api_info.clone()).await?;
                         ws_sender
                             .send(Message::Text(to_irc_message(format!(
                                 "Current stream title: {}",
@@ -274,7 +274,7 @@ pub async fn event_handler(
                             .await?;
                     }
                     IrcChat::SetTitle(title) => {
-                        set_title(&title, &api_info).await?;
+                        set_title(&title, api_info.clone()).await?;
                         ws_sender
                             .send(Message::Text(to_irc_message(format!(
                                 "Set stream title to: {}",

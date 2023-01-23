@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use futures_util::{pin_mut, StreamExt};
 use obws::{events::Event, Client};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, RwLock};
 
 use crate::{
     event_handler::{Event as EventHandler, IrcChat, IrcEvent},
@@ -12,9 +12,9 @@ use crate::{
 
 pub async fn obs_websocket(
     e_sender: UnboundedSender<EventHandler>,
-    api_info: Arc<ApiInfo>,
+    api_info: Arc<RwLock<ApiInfo>>,
 ) -> eyre::Result<()> {
-    let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await else {
+    let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.read().await.obs_server_password)).await else {
         println!("Could not connect to obs websocket");
         return Ok(())
     };
@@ -36,7 +36,7 @@ pub async fn obs_websocket(
                 continue;
             }
 
-            match run_ads(&api_info).await {
+            match run_ads(api_info.clone()).await {
                 Ok(retry) => {
                     println!("retry after {} seconds", retry);
                     e_sender.send(EventHandler::IrcEvent(IrcEvent::Chat(IrcChat::Commercial)))?;
@@ -45,8 +45,7 @@ pub async fn obs_websocket(
                     AdError::TooManyRequests => {
                         println!("{}", e)
                     }
-                    AdError::UnAuthorized => panic!("{e}"),
-                    AdError::RequestErr(err) => panic!("{}", err),
+                    _ => panic!("{e}"),
                 },
             }
         }

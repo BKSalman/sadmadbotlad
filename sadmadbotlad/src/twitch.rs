@@ -1,6 +1,7 @@
 use std::{
     fmt, fs,
     net::{Ipv4Addr, SocketAddrV4},
+    sync::Arc,
 };
 
 use eyre::Context;
@@ -8,7 +9,7 @@ use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::RwLock};
 use tokio_tungstenite::{accept_async, tungstenite};
 
 use crate::ApiInfo;
@@ -18,20 +19,16 @@ pub enum AdError {
     TooManyRequests,
     UnAuthorized,
     RequestErr(reqwest::Error),
+    EyreErr(eyre::Report),
 }
 
 impl fmt::Display for AdError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self {
-            Self::TooManyRequests => {
-                write!(f, "Too many commerial requests")
-            }
-            Self::UnAuthorized => {
-                write!(f, "Unauthorized commercial request")
-            }
-            Self::RequestErr(e) => {
-                write!(f, "{e}")
-            }
+            Self::TooManyRequests => write!(f, "Too many commerial requests"),
+            Self::UnAuthorized => write!(f, "Unauthorized commercial request"),
+            Self::RequestErr(e) => write!(f, "{e}"),
+            AdError::EyreErr(e) => write!(f, "{e}"),
         }
     }
 }
@@ -80,15 +77,18 @@ pub struct AdData {
     pub retry_after: i64,
 }
 
-pub async fn set_title(new_title: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
+pub async fn set_title(
+    new_title: &str,
+    api_info: Arc<RwLock<ApiInfo>>,
+) -> Result<(), eyre::Report> {
     // request twitch patch change title
 
     let http_client = Client::new();
 
     let res = http_client
         .patch("https://api.twitch.tv/helix/channels?broadcaster_id=143306668")
-        .bearer_auth(api_info.twitch_access_token.clone())
-        .header("Client-Id", api_info.client_id.clone())
+        .bearer_auth(api_info.read().await.twitch_access_token.clone())
+        .header("Client-Id", api_info.read().await.client_id.clone())
         .json(&json!({
             "title": new_title,
         }))
@@ -102,13 +102,13 @@ pub async fn set_title(new_title: &str, api_info: &ApiInfo) -> Result<(), eyre::
     Ok(())
 }
 
-pub async fn get_title(api_info: &ApiInfo) -> Result<String, eyre::Report> {
+pub async fn get_title(api_info: Arc<RwLock<ApiInfo>>) -> Result<String, eyre::Report> {
     let http_client = Client::new();
 
     let res = http_client
         .get("https://api.twitch.tv/helix/channels?broadcaster_id=143306668")
-        .bearer_auth(api_info.twitch_access_token.clone())
-        .header("Client-Id", api_info.client_id.clone())
+        .bearer_auth(api_info.write().await.get_token().await?)
+        .header("Client-Id", api_info.read().await.client_id.clone())
         .send()
         .await?;
 
@@ -250,13 +250,20 @@ pub async fn is_vip(
     })
 }
 
-pub async fn run_ads(api_info: &ApiInfo) -> Result<i64, AdError> {
+pub async fn run_ads(api_info: Arc<RwLock<ApiInfo>>) -> Result<i64, AdError> {
     let http_client = Client::new();
 
     let res = http_client
         .post("https://api.twitch.tv/helix/channels/commercial")
-        .bearer_auth(api_info.twitch_access_token.clone())
-        .header("Client-Id", api_info.client_id.clone())
+        .bearer_auth(
+            api_info
+                .write()
+                .await
+                .get_token()
+                .await
+                .map_err(AdError::EyreErr)?,
+        )
+        .header("Client-Id", api_info.read().await.client_id.clone())
         .json(&json!({
             "broadcaster_id": "143306668",
             "length": "90",

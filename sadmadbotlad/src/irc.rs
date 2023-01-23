@@ -28,7 +28,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 pub async fn irc_connect(
     e_sender: UnboundedSender<Event>,
     e_receiver: UnboundedReceiver<Event>,
-    api_info: Arc<ApiInfo>,
+    api_info: Arc<RwLock<ApiInfo>>,
     store: Arc<Store>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
@@ -332,7 +332,7 @@ async fn read(
                 if msg.contains("PING") {
                     event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Ping)))?;
                 } else if msg.contains("RECONNECT") {
-                    // TODO: reconnect
+                    event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Reconnect)))?;
                 } else {
                     // println!("{msg}");
                 }
