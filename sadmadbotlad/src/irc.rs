@@ -136,7 +136,7 @@ async fn read(
                         .unwrap_or_else(|| (&parsed_msg.message, ""))
                 };
 
-                match &command[1..] {
+                match &command.to_lowercase()[1..] {
                     "ping" | "وكز" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(
                         IrcChat::ChatPing(command.to_string()),
                     )))?,
