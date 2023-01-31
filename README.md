@@ -16,6 +16,7 @@ A personal twitch/discord bot that I incremently add features to depending on wh
   - Stream alerts
   - Song queue
   - Activity feed
+  - Stream interactions using [Heat](heat.j38.net/)
 
 # Future features
 [todos issue](https://github.com/BKSalman/sadmadbotlad/issues/2)
