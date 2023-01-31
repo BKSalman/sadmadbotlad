@@ -9,31 +9,10 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::commands::alert_test::AlertTestCommand;
-use crate::commands::commercial_break::CommercialBreakCommand;
-use crate::commands::get_title::GetTitleCommand;
-use crate::commands::get_volume::GetVolumeCommand;
-use crate::commands::mods_only::ModsOnlyCommand;
-use crate::commands::play::PlayCommand;
-use crate::commands::play_spotify::PlaySpotifyCommand;
-use crate::commands::rules::RulesCommand;
-use crate::commands::rust_warranty::RustWarrantyCommand;
-use crate::commands::set_title::SetTitleCommand;
-use crate::commands::set_volume::SetVolumeCommand;
-use crate::commands::stop::StopCommand;
-use crate::commands::stop_spotify::StopSpotifyCommand;
-use crate::commands::warranty::WarrantyCommand;
-use crate::commands::{
-    current_song::CurrentSongCommand, current_song_spotify::CurrentSongSpotifyCommand, execute,
-    invalid::InvalidCommand, ping::PingCommand, queue::QueueCommand, seventv::SevenTvCommand,
-    skip_sr::SkipSrCommand, sr::SrCommand,
-};
+use crate::commands::*;
 use crate::db::Store;
 use crate::song_requests::SrQueue;
-use crate::{
-    irc::{irc_login, to_irc_message},
-    song_requests::SongRequest,
-};
+use crate::{irc::irc_login, song_requests::SongRequest};
 use crate::{Alert, ApiInfo, SrFrontEndEvent};
 
 #[derive(Debug)]
@@ -228,36 +207,16 @@ pub async fn event_handler(
                     IrcChat::Commercial => execute(CommercialBreakCommand, &mut ws_sender).await?,
                     IrcChat::RustWarranty => execute(RustWarrantyCommand, &mut ws_sender).await?,
                     IrcChat::Database => {
-                        let events = store.get_events().await?;
-
-                        println!("{events:#?}");
+                        execute(DatabaseCommand::new(store.clone()), &mut ws_sender).await?
                     }
-                    IrcChat::WorkingOn => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("You can check what I'm working in here: https://gist.github.com/BKSalman/090658c8f67cc94bfb9d582d5be68ed4")))
-                            .await?;
-                    }
-                    IrcChat::PixelPerfect => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("image_res.rect")))
-                            .await?;
-                    }
-                    IrcChat::Discord => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
-                            .await?;
-                    }
+                    IrcChat::WorkingOn => execute(WorkingOnCommand, &mut ws_sender).await?,
+                    IrcChat::PixelPerfect => execute(PixelPerfectCommand, &mut ws_sender).await?,
+                    IrcChat::Discord => execute(DiscordCommand, &mut ws_sender).await?,
                     IrcChat::Nerd(message) => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&message)))
-                            .await?;
+                        execute(NerdCommand::new(message), &mut ws_sender).await?;
                     }
                     IrcChat::VoteSkip(voters) => {
-                        let message = format!("{voters}/5 skip votes");
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&message)))
-                            .await?;
+                        execute(VoteSkipCommand::new(voters), &mut ws_sender).await?;
                     }
                     IrcChat::SevenTv(query) => {
                         execute(SevenTvCommand::new(query), &mut ws_sender).await?
