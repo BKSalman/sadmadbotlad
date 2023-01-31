@@ -337,7 +337,6 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
 
 async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
-
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(api_info.twitch_access_token.clone())

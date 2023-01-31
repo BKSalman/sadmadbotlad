@@ -1,6 +1,7 @@
 use frontend::activity_feed::Activity;
 use frontend::alerts::Alerts;
 use frontend::code::Code;
+use frontend::heat::Heat;
 use frontend::songs::Songs;
 use frontend::Route;
 use yew::prelude::*;
@@ -26,6 +27,7 @@ impl Component for App {
             Route::Songs => html! { <Songs /> },
             Route::Activity => html! { <Activity /> },
             Route::Code => html! { <Code /> },
+            Route::Heat => html! { <Heat /> },
             Route::NotFound => html! { <h1>{ "404" }</h1> },
         };
 

@@ -114,39 +114,32 @@ async fn read(
                 event_sender.send(Event::IrcEvent(IrcEvent::WebSocket(IrcWs::Ping(ping))))?;
             }
             Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
-                let parsed_msg = parse_message(&msg);
+                let parsed_msg = parse_irc(&msg);
 
-                let tags = msg.rsplit_once(':').expect("no chat tags").0;
-                let tags = parse_tags(tags);
+                let (command, args) = if parsed_msg.tags.get_reply().is_ok() {
+                    // remove mention
+                    let (_, message) = parsed_msg.message.split_once(' ').expect("remove mention");
 
-                let parsed_sender = tags.sender();
-
-                let mut command = String::new();
-                let mut args = String::new();
-
-                if tags.get_reply().is_ok() {
-                    let first = &parsed_msg[parsed_msg.find(' ').unwrap_or(0) + 1..];
-                    if !first.starts_with(APP.config.cmd_delim) {
+                    if !message.starts_with(APP.config.cmd_delim) {
                         continue;
                     }
 
-                    let space_index = first.find(' ').unwrap_or(first.len());
-                    command.push_str(&first[1..space_index].to_lowercase());
-                    args.push_str(first[space_index..].trim());
+                    message.split_once(' ').unwrap_or_else(|| (&message, ""))
                 } else {
-                    if !parsed_msg.starts_with(APP.config.cmd_delim) {
+                    if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
                         continue;
                     }
 
-                    let space_index = parsed_msg.find(' ').unwrap_or(parsed_msg.len());
-                    command.push_str(&parsed_msg[1..space_index].to_lowercase());
-                    args.push_str(parsed_msg[space_index..].trim());
-                }
+                    parsed_msg
+                        .message
+                        .split_once(' ')
+                        .unwrap_or_else(|| (&parsed_msg.message, ""))
+                };
 
-                match command.as_str() {
-                    "ping" => {
-                        event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ChatPing)))?
-                    }
+                match &command.to_lowercase()[1..] {
+                    "ping" | "وكز" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(
+                        IrcChat::ChatPing(command.to_string()),
+                    )))?,
                     "db" => {
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Database)))?
                     }
@@ -159,12 +152,12 @@ async fn read(
                         }
 
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Sr((
-                            parsed_sender,
+                            parsed_msg.sender,
                             args.to_string(),
                         )))))?;
                     }
                     "skip" => {
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -185,7 +178,7 @@ async fn read(
                             });
                         }
 
-                        voters.write().await.insert(parsed_sender);
+                        voters.write().await.insert(parsed_msg.sender);
 
                         println!("{}", voters.read().await.len());
                         event_senderc
@@ -218,7 +211,7 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -230,7 +223,7 @@ async fn read(
                             continue;
                         };
 
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -241,7 +234,7 @@ async fn read(
                     }
                     "play" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Play)))?,
                     "playspotify" | "playsp" => {
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -251,7 +244,7 @@ async fn read(
                     }
                     "stop" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Stop)))?,
                     "stopspotify" | "stopsp" => {
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -260,7 +253,7 @@ async fn read(
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::StopSpotify)))?
                     }
                     "قوانين" => {
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -275,7 +268,7 @@ async fn read(
                             continue;
                         }
 
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -305,7 +298,7 @@ async fn read(
                         event_sender.send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Discord)))?;
                     }
                     "nerd" => {
-                        if let Ok(reply) = tags.get_reply() {
+                        if let Ok(reply) = parsed_msg.tags.get_reply() {
                             let message = format!("Nerd \"{}\"", reply);
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::Nerd(message))))?;
@@ -317,8 +310,11 @@ async fn read(
                             )))?;
                         }
                     }
+                    "7tv" => event_sender.send(Event::IrcEvent(IrcEvent::Chat(
+                        IrcChat::SevenTv(args.to_string()),
+                    )))?,
                     "test" => {
-                        if !tags.is_mod()? && !tags.is_broadcaster()? {
+                        if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
                             event_sender
                                 .send(Event::IrcEvent(IrcEvent::Chat(IrcChat::ModsOnly)))?;
                             continue;
@@ -351,7 +347,7 @@ async fn read(
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct Tags(HashMap<String, String>);
 
 impl Tags {
@@ -375,7 +371,8 @@ impl Tags {
     }
     fn decode_message(msg: &str) -> String {
         let mut output = String::with_capacity(msg.len());
-        // taken from https://github.com/robotty/twitch-irc-rs/blob/2e3e36b646630a0e6059896d7fece413180fb253/src/message/tags.rs#L10
+        // taken from:
+        // https://github.com/robotty/twitch-irc-rs/blob/2e3e36b646630a0e6059896d7fece413180fb253/src/message/tags.rs#L10
         let mut iter = msg.chars();
         while let Some(c) = iter.next() {
             if c == '\\' {
@@ -404,8 +401,38 @@ impl Tags {
     }
 }
 
-fn parse_tags(msg: &str) -> Tags {
-    msg[1..]
+#[derive(Default, Debug)]
+struct TwitchIrcMessage {
+    sender: String,
+    tags: Tags,
+    message: String,
+}
+
+impl From<HashMap<String, String>> for Tags {
+    fn from(value: HashMap<String, String>) -> Self {
+        Tags(value)
+    }
+}
+
+pub fn to_irc_message(msg: &str) -> String {
+    format!("PRIVMSG #sadmadladsalman :{}", msg)
+}
+
+fn parse_irc(msg: &str) -> TwitchIrcMessage {
+    let (tags, message) = msg.split_once(' ').expect("sperate tags and message");
+
+    let message = &message[1..];
+
+    let sender = message.split_once('!').expect("sender").0.to_string();
+
+    let message = message
+        .split_once(':')
+        .expect("message")
+        .1
+        .trim()
+        .to_string();
+
+    let tags = tags[1..]
         .split(';')
         .map(|s| {
             let (key, value) = s.split_once('=').expect("=");
@@ -419,25 +446,11 @@ fn parse_tags(msg: &str) -> Tags {
             )
         })
         .collect::<HashMap<String, String>>()
-        .into()
-}
+        .into();
 
-impl From<HashMap<String, String>> for Tags {
-    fn from(value: HashMap<String, String>) -> Self {
-        Tags(value)
+    TwitchIrcMessage {
+        tags,
+        message,
+        sender,
     }
-}
-
-fn parse_message(msg: &str) -> String {
-    let (_, after_tags) = msg.split_once(':').expect("channel and after");
-    after_tags
-        .split_once(':')
-        .expect("message")
-        .1
-        .trim()
-        .to_string()
-}
-
-pub fn to_irc_message(msg: impl Into<String>) -> String {
-    format!("PRIVMSG #sadmadladsalman :{}", msg.into())
 }

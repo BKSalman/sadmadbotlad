@@ -1,26 +1,19 @@
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{sink::SinkExt, StreamExt};
 use libmpv::Mpv;
-use std::process::Command;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{Sender, UnboundedReceiver},
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use crate::commands::*;
 use crate::db::Store;
 use crate::song_requests::SrQueue;
-use crate::twitch::{get_title, set_title};
-use crate::{
-    irc::{irc_login, to_irc_message},
-    song_requests::SongRequest,
-};
-use crate::{Alert, AlertEventType, ApiInfo, SrFrontEndEvent, APP};
-
-const RULES: &str = include_str!("../rules.txt");
-const WARRANTY: &str = include_str!("../warranty.txt");
-const RUST_WARRANTY: &str = include_str!("../rust_warranty.txt");
+use crate::{irc::irc_login, song_requests::SongRequest};
+use crate::{Alert, ApiInfo, SrFrontEndEvent};
 
 #[derive(Debug)]
 pub enum Event {
@@ -44,7 +37,7 @@ pub enum IrcWs {
 pub enum IrcChat {
     Invalid(String),
     Ping,
-    ChatPing,
+    ChatPing(String),
     Sr((String, String)),
     SkipSr,
     Queue,
@@ -69,6 +62,7 @@ pub enum IrcChat {
     Discord,
     Nerd(String),
     VoteSkip(usize),
+    SevenTv(String),
     Test(String),
 }
 
@@ -91,19 +85,19 @@ pub async fn event_handler(
     mut recv: UnboundedReceiver<Event>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
-    front_end_alert_sender: tokio::sync::broadcast::Sender<Alert>,
-    front_end_sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+    alert_sender: tokio::sync::broadcast::Sender<Alert>,
+    sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
-    let queue = Arc::new(tokio::sync::RwLock::new(SrQueue::new()));
+    let queue = Arc::new(RwLock::new(SrQueue::new()));
 
     irc_login(&mut ws_sender, &api_info).await?;
 
-    let sr_setupc = queue.clone();
+    let queuec = queue.clone();
 
     let t_handle = tokio::spawn(async move {
-        front_end_receiver(front_end_sr_sender, sr_setupc).await;
+        front_end_receiver(sr_sender, queuec).await;
     });
 
     while let Some(event) = recv.recv().await {
@@ -129,311 +123,103 @@ pub async fn event_handler(
                     }
                 },
                 IrcEvent::Chat(event) => match event {
-                    IrcChat::ChatPing => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!(
-                                "{}pong",
-                                APP.config.cmd_delim
-                            ))))
-                            .await?;
-                    }
                     IrcChat::Ping => {
                         ws_sender
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
                     }
+                    IrcChat::ChatPing(command) => {
+                        execute(PingCommand::new(command), &mut ws_sender).await?
+                    }
                     IrcChat::Sr((sender, song)) => {
-                        match queue
-                            .write()
-                            .await
-                            .sr(&song, sender, song_sender.clone(), api_info.clone())
-                            .await
-                        {
-                            Ok(message) => {
-                                ws_sender.send(Message::Text(message)).await?;
-                            }
-                            Err(e) => match e.to_string().as_str() {
-                                "Not A Valid Youtube URL" => {
-                                    ws_sender
-                                        .send(Message::Text(to_irc_message(
-                                            "Not a valid youtube URL",
-                                        )))
-                                        .await?;
-                                }
-                                _ => panic!("{e}"),
-                            },
-                        }
+                        execute(
+                            SrCommand::new(
+                                queue.clone(),
+                                song,
+                                sender,
+                                song_sender.clone(),
+                                api_info.clone(),
+                            ),
+                            &mut ws_sender,
+                        )
+                        .await?;
                     }
                     IrcChat::SkipSr => {
-                        let mut message = String::new();
-                        if let Some(song) = &queue.read().await.current_song {
-                            if mpv.playlist_next_force().is_ok() {
-                                message = to_irc_message(format!("Skipped: {}", song.title));
-                            }
-                        } else {
-                            message = to_irc_message("No song playing");
-                        }
-
-                        ws_sender.send(Message::Text(message)).await?;
+                        execute(
+                            SkipSrCommand::new(queue.clone(), mpv.clone()),
+                            &mut ws_sender,
+                        )
+                        .await?
                     }
                     IrcChat::Invalid(e) => {
-                        ws_sender.send(Message::Text(to_irc_message(e))).await?;
+                        execute(InvalidCommand::new(e), &mut ws_sender).await?;
                     }
                     IrcChat::Queue => {
-                        println!("{:#?}", queue.read().await.queue);
-                        ws_sender
-                            .send(Message::Text(to_irc_message(
-                                "Check the queue at: https://f5rfm.bksalman.com",
-                            )))
-                            .await?;
+                        execute(QueueCommand::new(queue.clone()), &mut ws_sender).await?
                     }
                     IrcChat::CurrentSong => {
-                        if let Some(current_song) = queue.read().await.current_song.as_ref() {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(format!(
-                                    "Current song: {} - by {}",
-                                    current_song.title, current_song.user,
-                                ))))
-                                .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("No song playing")))
-                                .await?;
-                        }
+                        execute(CurrentSongCommand::new(queue.clone()), &mut ws_sender).await?
                     }
                     IrcChat::CurrentSongSpotify => {
-                        let cmd = Command::new("./scripts/current_spotify_song.sh").output()?;
-                        let output = String::from_utf8(cmd.stdout)?;
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!(
-                                "Current Spotify song: {}",
-                                output
-                            ))))
-                            .await?;
+                        execute(CurrentSongSpotifyCommand, &mut ws_sender).await?
                     }
                     IrcChat::PlaySpotify => {
-                        if Command::new("./scripts/play_spotify.sh").spawn().is_ok() {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(String::from(
-                                    "Started playing spotify",
-                                ))))
-                                .await?;
-                        } else {
-                            println!("no script");
-                        }
+                        execute(PlaySpotifyCommand, &mut ws_sender).await?;
                     }
                     IrcChat::StopSpotify => {
-                        if let Err(e) = Command::new("./scripts/pause_spotify.sh").spawn() {
-                            println!("{e:?}");
-                            continue;
-                        }
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(String::from(
-                                "Stopped playing spotify",
-                            ))))
-                            .await?;
+                        execute(StopSpotifyCommand, &mut ws_sender).await?;
                     }
                     IrcChat::SetVolume(volume) => {
-                        if let Err(e) = mpv.set_property("volume", volume) {
-                            println!("{e}");
-                        }
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!(
-                                "Volume set to {volume}",
-                            ))))
-                            .await?;
+                        execute(SetVolumeCommand::new(mpv.clone(), volume), &mut ws_sender).await?;
                     }
                     IrcChat::GetVolume => {
-                        let Ok(volume) = mpv.get_property::<i64>("volume") else {
-                            println!("volume error");
-                            ws_sender.send(Message::Text(to_irc_message("No volume"))).await?;
-                            continue;
-                        };
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!("Volume: {}", volume))))
-                            .await?;
+                        execute(GetVolumeCommand::new(mpv.clone()), &mut ws_sender).await?;
                     }
-                    IrcChat::Stop => {
-                        if let Err(e) = mpv.pause() {
-                            println!("{e}");
-                        }
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(
-                                "Stopped playing, !play to resume",
-                            )))
-                            .await?;
-                    }
+                    IrcChat::Stop => execute(StopCommand::new(mpv.clone()), &mut ws_sender).await?,
                     IrcChat::Play => {
-                        if let Some(song) = &queue.read().await.current_song {
-                            if let Err(e) = mpv.unpause() {
-                                println!("{e}");
-                            }
-
-                            ws_sender
-                                .send(Message::Text(to_irc_message(format!(
-                                    "Resumed {}",
-                                    song.title
-                                ))))
-                                .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("Queue is empty")))
-                                .await?;
-                        }
+                        execute(PlayCommand::new(queue.clone(), mpv.clone()), &mut ws_sender)
+                            .await?;
                     }
                     IrcChat::Rules => {
-                        for rule in RULES.lines() {
-                            ws_sender.send(Message::Text(to_irc_message(rule))).await?;
-                        }
+                        execute(RulesCommand, &mut ws_sender).await?;
                     }
                     IrcChat::GetTitle => {
-                        let title = get_title(&api_info).await?;
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!(
-                                "Current stream title: {}",
-                                title
-                            ))))
-                            .await?;
+                        execute(GetTitleCommand::new(api_info.clone()), &mut ws_sender).await?;
                     }
                     IrcChat::SetTitle(title) => {
-                        set_title(&title, &api_info).await?;
-                        ws_sender
-                            .send(Message::Text(to_irc_message(format!(
-                                "Set stream title to: {}",
-                                title
-                            ))))
-                            .await?;
+                        execute(
+                            SetTitleCommand::new(api_info.clone(), title),
+                            &mut ws_sender,
+                        )
+                        .await?;
                     }
                     IrcChat::ModsOnly => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(String::from(
-                                "This command can only be used by mods",
-                            ))))
-                            .await?;
+                        execute(ModsOnlyCommand, &mut ws_sender).await?;
                     }
-                    IrcChat::Test(test) => match test.to_lowercase().as_str() {
-                        "raid" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
-                                new: true,
-                                r#type: AlertEventType::Raid {
-                                    from: String::from("lmao"),
-                                    viewers: 9999,
-                                },
-                            }) {
-                                println!("frontend event failed:: {e:?}")
-                            }
-                        }
-                        "follow" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
-                                new: true,
-                                r#type: AlertEventType::Follow {
-                                    follower: String::from("lmao"),
-                                },
-                            }) {
-                                println!("frontend event failed:: {e:?}")
-                            }
-                        }
-                        "sub" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
-                                new: true,
-                                r#type: AlertEventType::Subscribe {
-                                    subscriber: String::from("lmao"),
-                                    tier: String::from("3"),
-                                },
-                            }) {
-                                println!("frontend event failed:: {e:?}")
-                            }
-                        }
-                        "resub" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
-                                new: true,
-                                r#type: AlertEventType::ReSubscribe {
-                                    subscriber: String::from("lmao"),
-                                    tier: String::from("3"),
-                                    subscribed_for: 4,
-                                    streak: 2,
-                                },
-                            }) {
-                                println!("frontend event failed:: {e:?}")
-                            }
-                        }
-                        "giftsub" => {
-                            if let Err(e) = front_end_alert_sender.send(Alert {
-                                new: true,
-                                r#type: AlertEventType::GiftSub {
-                                    gifter: String::from("lmao"),
-                                    total: 9999,
-                                    tier: String::from("3"),
-                                },
-                            }) {
-                                println!("frontend event failed:: {e:?}")
-                            }
-                        }
-                        _ => {
-                            println!("no args provided");
-                            if let Err(e) = front_end_alert_sender.send(Alert {
-                                new: true,
-                                r#type: AlertEventType::Raid {
-                                    from: String::from("lmao"),
-                                    viewers: 9999,
-                                },
-                            }) {
-                                println!("frontend event failed:: {e:?}")
-                            }
-                        }
-                    },
-                    IrcChat::Warranty => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(WARRANTY)))
-                            .await?;
+                    IrcChat::Test(test) => {
+                        execute(
+                            AlertTestCommand::new(alert_sender.clone(), test),
+                            &mut ws_sender,
+                        )
+                        .await?
                     }
-                    IrcChat::Commercial => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(
-                                "Starting a 90 seconds commercial break",
-                            )))
-                            .await?;
-                    }
-                    IrcChat::RustWarranty => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(RUST_WARRANTY)))
-                            .await?;
-                    }
+                    IrcChat::Warranty => execute(WarrantyCommand, &mut ws_sender).await?,
+                    IrcChat::Commercial => execute(CommercialBreakCommand, &mut ws_sender).await?,
+                    IrcChat::RustWarranty => execute(RustWarrantyCommand, &mut ws_sender).await?,
                     IrcChat::Database => {
-                        let events = store.get_events().await?;
-
-                        println!("{events:#?}");
+                        execute(DatabaseCommand::new(store.clone()), &mut ws_sender).await?
                     }
-                    IrcChat::WorkingOn => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("You can check what I'm working in here: https://gist.github.com/BKSalman/090658c8f67cc94bfb9d582d5be68ed4")))
-                            .await?;
-                    }
-                    IrcChat::PixelPerfect => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("image_res.rect")))
-                            .await?;
-                    }
-                    IrcChat::Discord => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
-                            .await?;
-                    }
+                    IrcChat::WorkingOn => execute(WorkingOnCommand, &mut ws_sender).await?,
+                    IrcChat::PixelPerfect => execute(PixelPerfectCommand, &mut ws_sender).await?,
+                    IrcChat::Discord => execute(DiscordCommand, &mut ws_sender).await?,
                     IrcChat::Nerd(message) => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(message)))
-                            .await?;
+                        execute(NerdCommand::new(message), &mut ws_sender).await?;
                     }
                     IrcChat::VoteSkip(voters) => {
-                        let message = format!("{voters}/5 skip votes");
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(message)))
-                            .await?;
+                        execute(VoteSkipCommand::new(voters), &mut ws_sender).await?;
+                    }
+                    IrcChat::SevenTv(query) => {
+                        execute(SevenTvCommand::new(query), &mut ws_sender).await?
                     }
                 },
             },
@@ -472,9 +258,9 @@ async fn front_end_receiver(
     front_end_events_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
     sr_setup: Arc<tokio::sync::RwLock<SrQueue>>,
 ) {
-    let mut front_end_events_receiver = front_end_events_sender.subscribe();
+    let mut events_receiver = front_end_events_sender.subscribe();
 
-    while let Ok(msg) = front_end_events_receiver.recv().await {
+    while let Ok(msg) = events_receiver.recv().await {
         match msg {
             SrFrontEndEvent::QueueRequest => {
                 front_end_events_sender

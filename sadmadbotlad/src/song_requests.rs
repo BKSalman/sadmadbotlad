@@ -64,7 +64,7 @@ impl SrQueue {
     pub async fn sr(
         &mut self,
         irc_msg: &str,
-        irc_sender: impl Into<String>,
+        irc_sender: &str,
         song_sender: Sender<SongRequest>,
         api_info: Arc<ApiInfo>,
     ) -> Result<String, eyre::Report> {
@@ -83,7 +83,7 @@ impl SrQueue {
 
             self.enqueue(&song).expect("Enqueuing");
 
-            return Ok(to_irc_message(format!("Added: {}", song.title)));
+            return Ok(to_irc_message(&format!("Added: {}", song.title)));
         }
         // request is a valid yt URL
 
@@ -104,7 +104,7 @@ impl SrQueue {
 
         self.enqueue(&song).expect("Enqueuing");
 
-        return Ok(to_irc_message(format!("Added: {}", video_title)));
+        return Ok(to_irc_message(&format!("Added: {}", video_title)));
     }
 }
 
