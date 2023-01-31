@@ -5,6 +5,7 @@ pub mod activity_feed;
 pub mod alerts;
 pub mod code;
 pub mod components;
+pub mod heat;
 pub mod songs;
 
 #[derive(Clone, Routable, PartialEq)]
@@ -17,6 +18,8 @@ pub enum Route {
     Songs,
     #[at("/code")]
     Code,
+    #[at("/heat")]
+    Heat,
     #[not_found]
     #[at("/404")]
     NotFound,
