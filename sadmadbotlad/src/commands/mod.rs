@@ -1,9 +1,25 @@
+pub mod alert_test;
+pub mod commercial_break;
 pub mod current_song;
+pub mod current_song_spotify;
+pub mod get_title;
+pub mod get_volume;
+pub mod invalid;
+pub mod mods_only;
 pub mod ping;
+pub mod play;
+pub mod play_spotify;
 pub mod queue;
+pub mod rules;
+pub mod rust_warranty;
+pub mod set_title;
+pub mod set_volume;
 pub mod seventv;
 pub mod skip_sr;
 pub mod sr;
+pub mod stop;
+pub mod stop_spotify;
+pub mod warranty;
 
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;

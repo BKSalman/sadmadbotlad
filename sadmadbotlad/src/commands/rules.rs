@@ -7,29 +7,19 @@ use crate::irc::to_irc_message;
 
 use super::Command;
 
-pub struct SevenTvCommand {
-    query: String,
-}
+pub struct RulesCommand;
 
-impl SevenTvCommand {
-    pub fn new(query: String) -> Self {
-        Self { query }
-    }
-}
+const RULES: &str = include_str!("../../rules.txt");
 
 #[async_trait]
-impl Command for SevenTvCommand {
+impl Command for RulesCommand {
     async fn execute(
         &self,
         ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ) -> eyre::Result<()> {
-        let query = urlencoding::encode(&self.query);
-
-        ws_sender
-            .send(Message::Text(to_irc_message(&format!(
-                "https://7tv.app/emotes?query={query}"
-            ))))
-            .await?;
+        for rule in RULES.lines() {
+            ws_sender.send(Message::Text(to_irc_message(rule))).await?;
+        }
         Ok(())
     }
 }

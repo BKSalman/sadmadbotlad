@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures_util::{stream::SplitSink, SinkExt};
+use libmpv::Mpv;
 use tokio::{net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
@@ -9,32 +10,37 @@ use crate::{irc::to_irc_message, song_requests::SrQueue};
 
 use super::Command;
 
-pub struct CurrentSongCommand {
+pub struct PlayCommand {
     queue: Arc<RwLock<SrQueue>>,
+    mpv: Arc<Mpv>,
 }
 
-impl CurrentSongCommand {
-    pub fn new(queue: Arc<RwLock<SrQueue>>) -> Self {
-        Self { queue }
+impl PlayCommand {
+    pub fn new(queue: Arc<RwLock<SrQueue>>, mpv: Arc<Mpv>) -> Self {
+        Self { queue, mpv }
     }
 }
 
 #[async_trait]
-impl Command for CurrentSongCommand {
+impl Command for PlayCommand {
     async fn execute(
         &self,
         ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ) -> eyre::Result<()> {
-        if let Some(current_song) = self.queue.read().await.current_song.as_ref() {
+        if let Some(song) = &self.queue.read().await.current_song {
+            if let Err(e) = self.mpv.unpause() {
+                println!("{e}");
+            }
+
             ws_sender
                 .send(Message::Text(to_irc_message(&format!(
-                    "current song: {} , requested by {} - {}",
-                    current_song.title, current_song.user, current_song.url,
+                    "Resumed {}",
+                    song.title
                 ))))
                 .await?;
         } else {
             ws_sender
-                .send(Message::Text(to_irc_message("No song playing")))
+                .send(Message::Text(to_irc_message("Queue is empty")))
                 .await?;
         }
         Ok(())

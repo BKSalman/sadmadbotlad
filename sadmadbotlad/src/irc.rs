@@ -414,8 +414,8 @@ impl From<HashMap<String, String>> for Tags {
     }
 }
 
-pub fn to_irc_message(msg: impl Into<String>) -> String {
-    format!("PRIVMSG #sadmadladsalman :{}", msg.into())
+pub fn to_irc_message(msg: &str) -> String {
+    format!("PRIVMSG #sadmadladsalman :{}", msg)
 }
 
 fn parse_irc(msg: &str) -> TwitchIrcMessage {

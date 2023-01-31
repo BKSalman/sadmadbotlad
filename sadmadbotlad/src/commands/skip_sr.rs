@@ -30,7 +30,7 @@ impl Command for SkipSrCommand {
         let mut message = String::new();
         if let Some(song) = &self.queue.read().await.current_song {
             if self.mpv.playlist_next_force().is_ok() {
-                message = to_irc_message(format!("Skipped: {}", song.title));
+                message = to_irc_message(&format!("Skipped: {}", song.title));
             }
         } else {
             message = to_irc_message("No song playing");

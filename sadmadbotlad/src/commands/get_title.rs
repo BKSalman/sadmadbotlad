@@ -1,33 +1,35 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use futures_util::{stream::SplitSink, SinkExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::irc::to_irc_message;
+use crate::{irc::to_irc_message, twitch::get_title, ApiInfo};
 
 use super::Command;
 
-pub struct SevenTvCommand {
-    query: String,
+pub struct GetTitleCommand {
+    api_info: Arc<ApiInfo>,
 }
 
-impl SevenTvCommand {
-    pub fn new(query: String) -> Self {
-        Self { query }
+impl GetTitleCommand {
+    pub fn new(api_info: Arc<ApiInfo>) -> Self {
+        Self { api_info }
     }
 }
 
 #[async_trait]
-impl Command for SevenTvCommand {
+impl Command for GetTitleCommand {
     async fn execute(
         &self,
         ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ) -> eyre::Result<()> {
-        let query = urlencoding::encode(&self.query);
-
+        let title = get_title(&self.api_info).await?;
         ws_sender
             .send(Message::Text(to_irc_message(&format!(
-                "https://7tv.app/emotes?query={query}"
+                "Current stream title: {}",
+                title
             ))))
             .await?;
         Ok(())

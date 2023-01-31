@@ -83,7 +83,7 @@ impl SrQueue {
 
             self.enqueue(&song).expect("Enqueuing");
 
-            return Ok(to_irc_message(format!("Added: {}", song.title)));
+            return Ok(to_irc_message(&format!("Added: {}", song.title)));
         }
         // request is a valid yt URL
 
@@ -104,7 +104,7 @@ impl SrQueue {
 
         self.enqueue(&song).expect("Enqueuing");
 
-        return Ok(to_irc_message(format!("Added: {}", video_title)));
+        return Ok(to_irc_message(&format!("Added: {}", video_title)));
     }
 }
 

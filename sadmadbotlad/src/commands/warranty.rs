@@ -7,28 +7,18 @@ use crate::irc::to_irc_message;
 
 use super::Command;
 
-pub struct SevenTvCommand {
-    query: String,
-}
+pub struct WarrantyCommand;
 
-impl SevenTvCommand {
-    pub fn new(query: String) -> Self {
-        Self { query }
-    }
-}
+const WARRANTY: &str = include_str!("../../warranty.txt");
 
 #[async_trait]
-impl Command for SevenTvCommand {
+impl Command for WarrantyCommand {
     async fn execute(
         &self,
         ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ) -> eyre::Result<()> {
-        let query = urlencoding::encode(&self.query);
-
         ws_sender
-            .send(Message::Text(to_irc_message(&format!(
-                "https://7tv.app/emotes?query={query}"
-            ))))
+            .send(Message::Text(to_irc_message(WARRANTY)))
             .await?;
         Ok(())
     }

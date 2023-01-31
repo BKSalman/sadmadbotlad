@@ -25,14 +25,14 @@ impl Command for PingCommand {
     ) -> eyre::Result<()> {
         if self.command.is_ascii() {
             ws_sender
-                .send(Message::Text(to_irc_message(format!(
+                .send(Message::Text(to_irc_message(&format!(
                     "{}pong",
                     APP.config.cmd_delim
                 ))))
                 .await?;
         } else {
             ws_sender
-                .send(Message::Text(to_irc_message(format!(
+                .send(Message::Text(to_irc_message(&format!(
                     "{}يكز",
                     APP.config.cmd_delim
                 ))))
