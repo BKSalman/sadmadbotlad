@@ -79,7 +79,11 @@ impl Command for AlertTestCommand {
                 ws_sender
                     .send(Message::Text(to_irc_message(&format!(
                         "Testing {} alert",
-                        self.test
+                        if self.test.is_empty() {
+                            "raid"
+                        } else {
+                            &self.test
+                        }
                     ))))
                     .await?;
             }
