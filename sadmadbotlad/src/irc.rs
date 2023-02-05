@@ -124,7 +124,7 @@ async fn read(
                         continue;
                     }
 
-                    message.split_once(' ').unwrap_or_else(|| (&message, ""))
+                    message.split_once(' ').unwrap_or((message, ""))
                 } else {
                     if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
                         continue;
@@ -133,7 +133,7 @@ async fn read(
                     parsed_msg
                         .message
                         .split_once(' ')
-                        .unwrap_or_else(|| (&parsed_msg.message, ""))
+                        .unwrap_or((&parsed_msg.message, ""))
                 };
 
                 match &command.to_lowercase()[1..] {
