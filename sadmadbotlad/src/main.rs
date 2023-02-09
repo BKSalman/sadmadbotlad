@@ -5,11 +5,9 @@ use sadmadbotlad::db::Store;
 use sadmadbotlad::obs_websocket::obs_websocket;
 use sadmadbotlad::twitch::access_token;
 use sadmadbotlad::{event_handler, sr_ws_server::sr_ws_server};
-use sadmadbotlad::{ApiInfo, APP};
-
-use sadmadbotlad::{flatten, ws_server::ws_server};
-
 use sadmadbotlad::{eventsub::eventsub, install_eyre, irc::irc_connect};
+use sadmadbotlad::{flatten, ws_server::ws_server};
+use sadmadbotlad::{ApiInfo, TwitchApiInfoEvent, APP};
 
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {

@@ -36,7 +36,7 @@ pub async fn obs_websocket(
                 continue;
             }
 
-            match run_ads(&api_info).await {
+            match run_ads(&api_info.twitch).await {
                 Ok(retry) => {
                     println!("retry after {} seconds", retry);
                     e_sender.send(EventHandler::IrcEvent(IrcEvent::Chat(IrcChat::Commercial)))?;

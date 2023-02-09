@@ -21,6 +21,11 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
+pub enum TwitchApiInfoEvent {
+    Write(TwitchApiInfo),
+    Read,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Config {
@@ -36,13 +41,13 @@ pub struct Config {
 pub struct App {
     pub config: Config,
     pub alerts_sender: tokio::sync::broadcast::Sender<Alert>,
-    pub sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+    pub sr_sender: tokio::sync::broadcast::Sender<SrEvent>,
 }
 
 impl App {
     pub fn new() -> Self {
         let (alerts_sender, _) = tokio::sync::broadcast::channel::<Alert>(100);
-        let (sr_sender, _) = tokio::sync::broadcast::channel::<SrFrontEndEvent>(100);
+        let (sr_sender, _) = tokio::sync::broadcast::channel::<SrEvent>(100);
 
         Self {
             config: Config::parse(),
@@ -187,7 +192,7 @@ pub struct Alert {
 }
 
 #[derive(Debug, Clone)]
-pub enum SrFrontEndEvent {
+pub enum SrEvent {
     QueueRequest,
     QueueResponse(Arc<tokio::sync::RwLock<SrQueue>>),
 }
@@ -195,11 +200,8 @@ pub enum SrFrontEndEvent {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApiInfo {
     pub google_api_key: String,
-    pub user: String,
-    pub client_id: String,
-    pub client_secret: String,
-    pub twitch_access_token: String,
-    pub twitch_refresh_token: String,
+    #[serde(flatten)]
+    pub twitch: TwitchApiInfo,
     pub discord_token: String,
     pub obs_server_password: String,
 }
@@ -215,13 +217,44 @@ impl ApiInfo {
 
         match toml::from_str::<ApiInfo>(&config_str) {
             Ok(mut api_info) => {
-                refresh_access_token(&mut api_info).await?;
+                refresh_access_token(&mut api_info.twitch).await?;
                 Ok(api_info)
             }
             Err(e) => {
                 panic!("Api Info:: {e}");
             }
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TwitchApiInfo {
+    pub user: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub twitch_access_token: String,
+    pub twitch_refresh_token: String,
+}
+
+impl TwitchApiInfo {
+    pub async fn get_token(&mut self) -> eyre::Result<String> {
+        let http_client = reqwest::Client::new();
+
+        let res = http_client
+            .get("https://id.twitch.tv/oauth2/validate")
+            .header(
+                "Authorization",
+                format!("OAuth {}", self.twitch_access_token),
+            )
+            .send()
+            .await?;
+
+        if !res.status().is_success() {
+            println!("token expired. Refreshing...");
+            refresh_access_token(self).await?;
+        }
+
+        Ok(self.twitch_access_token.clone())
     }
 }
 

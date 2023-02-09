@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::db::Store;
 use crate::{discord::online_notification, ApiInfo};
-use crate::{Alert, AlertEventType, APP};
+use crate::{Alert, AlertEventType, TwitchApiInfo, APP};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
@@ -71,23 +71,23 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
                         "connected" => {
                             let session_id = session["id"].as_str().expect("session id");
 
-                            online_eventsub(&api_info, session_id).await?;
+                            online_eventsub(&api_info.twitch, session_id).await?;
 
-                            offline_eventsub(&api_info, session_id).await?;
+                            offline_eventsub(&api_info.twitch, session_id).await?;
 
-                            follow_eventsub(&api_info, session_id).await?;
+                            follow_eventsub(&api_info.twitch, session_id).await?;
 
-                            raid_eventsub(&api_info, session_id).await?;
+                            raid_eventsub(&api_info.twitch, session_id).await?;
 
-                            subscribe_eventsub(&api_info, session_id).await?;
+                            subscribe_eventsub(&api_info.twitch, session_id).await?;
 
-                            resubscribe_eventsub(&api_info, session_id).await?;
+                            resubscribe_eventsub(&api_info.twitch, session_id).await?;
 
-                            giftsub_eventsub(&api_info, session_id).await?;
+                            giftsub_eventsub(&api_info.twitch, session_id).await?;
 
-                            rewards_eventsub(&api_info, session_id).await?;
+                            rewards_eventsub(&api_info.twitch, session_id).await?;
 
-                            cheers_eventsub(&api_info, session_id).await?;
+                            cheers_eventsub(&api_info.twitch, session_id).await?;
 
                             println!("Subscribed to eventsubs");
                         }
@@ -335,7 +335,7 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
     Ok(())
 }
 
-async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn offline_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -366,7 +366,7 @@ async fn offline_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
     Ok(())
 }
 
-async fn cheers_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn cheers_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -398,7 +398,7 @@ async fn cheers_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
     Ok(())
 }
 
-async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn online_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -430,7 +430,7 @@ async fn online_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
     Ok(())
 }
 
-async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn follow_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -462,7 +462,7 @@ async fn follow_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::
     Ok(())
 }
 
-async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn raid_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -494,7 +494,7 @@ async fn raid_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Re
     Ok(())
 }
 
-async fn subscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn subscribe_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -526,7 +526,7 @@ async fn subscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyr
     Ok(())
 }
 
-async fn resubscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn resubscribe_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -558,7 +558,7 @@ async fn resubscribe_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), e
     Ok(())
 }
 
-async fn giftsub_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn giftsub_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -590,7 +590,7 @@ async fn giftsub_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre:
     Ok(())
 }
 
-async fn rewards_eventsub(api_info: &ApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn rewards_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
     let res = http_client

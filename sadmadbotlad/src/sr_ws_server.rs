@@ -6,7 +6,7 @@ use tokio_tungstenite::{
     tungstenite::{Message, Result},
 };
 
-use crate::{SrFrontEndEvent, APP};
+use crate::{SrEvent, APP};
 
 pub async fn sr_ws_server() -> Result<(), eyre::Report> {
     println!("Starting Sr WebSocket Server");
@@ -45,14 +45,14 @@ async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
     let mut ws_stream = accept_async(stream).await.expect("Failed to accept");
 
     sr_sender
-        .send(SrFrontEndEvent::QueueRequest)
+        .send(SrEvent::QueueRequest)
         .expect("request songs");
 
     while let Ok(msg) = sr_receiver.recv().await {
         println!("Sending Queue to Peer {peer}");
         match msg {
-            SrFrontEndEvent::QueueRequest => {}
-            SrFrontEndEvent::QueueResponse(queue) => {
+            SrEvent::QueueRequest => {}
+            SrEvent::QueueResponse(queue) => {
                 let Ok(queue) = serde_json::to_string(&*queue.read().await) else {
                     panic!("Could not parse queue to string");
                 };

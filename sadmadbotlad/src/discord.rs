@@ -40,8 +40,8 @@ pub async fn online_notification(api_info: &ApiInfo) -> Result<(), eyre::Report>
 
     let res = http_client
         .get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
-        .bearer_auth(api_info.twitch_access_token.clone())
-        .header("Client-Id", api_info.client_id.clone())
+        .bearer_auth(api_info.twitch.twitch_access_token.clone())
+        .header("Client-Id", api_info.twitch.client_id.clone())
         .send()
         .await?;
 

@@ -9,7 +9,7 @@ use crate::{
     event_handler::{event_handler, Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, SongRequest},
-    ApiInfo, APP,
+    ApiInfo, TwitchApiInfo, APP,
 };
 use eyre::WrapErr;
 use futures_util::{
@@ -76,7 +76,7 @@ pub async fn irc_connect(
 
 pub async fn irc_login(
     ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    api_info: &ApiInfo,
+    api_info: &TwitchApiInfo,
 ) -> Result<(), eyre::Report> {
     let cap = Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags"));
 

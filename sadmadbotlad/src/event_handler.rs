@@ -13,7 +13,7 @@ use crate::commands::*;
 use crate::db::Store;
 use crate::song_requests::SrQueue;
 use crate::{irc::irc_login, song_requests::SongRequest};
-use crate::{Alert, ApiInfo, SrFrontEndEvent};
+use crate::{Alert, ApiInfo, SrEvent};
 
 #[derive(Debug)]
 pub enum Event {
@@ -86,13 +86,13 @@ pub async fn event_handler(
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
     alert_sender: tokio::sync::broadcast::Sender<Alert>,
-    sr_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+    sr_sender: tokio::sync::broadcast::Sender<SrEvent>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
     let queue = Arc::new(RwLock::new(SrQueue::new()));
 
-    irc_login(&mut ws_sender, &api_info).await?;
+    irc_login(&mut ws_sender, &api_info.twitch).await?;
 
     let queuec = queue.clone();
 
@@ -119,7 +119,7 @@ pub async fn event_handler(
                         let mut locked_ws_receiver = ws_receiver.lock().await;
                         *locked_ws_receiver = receiver;
 
-                        irc_login(&mut ws_sender, &api_info).await?;
+                        irc_login(&mut ws_sender, &api_info.twitch).await?;
                     }
                 },
                 IrcEvent::Chat(event) => match event {
@@ -184,11 +184,11 @@ pub async fn event_handler(
                         execute(RulesCommand, &mut ws_sender).await?;
                     }
                     IrcChat::GetTitle => {
-                        execute(GetTitleCommand::new(api_info.clone()), &mut ws_sender).await?;
+                        execute(GetTitleCommand::new(&api_info.twitch), &mut ws_sender).await?;
                     }
                     IrcChat::SetTitle(title) => {
                         execute(
-                            SetTitleCommand::new(api_info.clone(), title),
+                            SetTitleCommand::new(&api_info.twitch, title),
                             &mut ws_sender,
                         )
                         .await?;
@@ -255,19 +255,19 @@ pub async fn event_handler(
 }
 
 async fn front_end_receiver(
-    front_end_events_sender: tokio::sync::broadcast::Sender<SrFrontEndEvent>,
+    front_end_events_sender: tokio::sync::broadcast::Sender<SrEvent>,
     sr_setup: Arc<tokio::sync::RwLock<SrQueue>>,
 ) {
     let mut events_receiver = front_end_events_sender.subscribe();
 
     while let Ok(msg) = events_receiver.recv().await {
         match msg {
-            SrFrontEndEvent::QueueRequest => {
+            SrEvent::QueueRequest => {
                 front_end_events_sender
-                    .send(SrFrontEndEvent::QueueResponse(sr_setup.clone()))
+                    .send(SrEvent::QueueResponse(sr_setup.clone()))
                     .expect("song response");
             }
-            SrFrontEndEvent::QueueResponse(_) => {}
+            SrEvent::QueueResponse(_) => {}
         }
     }
 }

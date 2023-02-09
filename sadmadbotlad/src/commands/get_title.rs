@@ -5,22 +5,22 @@ use futures_util::{stream::SplitSink, SinkExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::{irc::to_irc_message, twitch::get_title, ApiInfo};
+use crate::{irc::to_irc_message, twitch::get_title, ApiInfo, TwitchApiInfo};
 
 use super::Command;
 
-pub struct GetTitleCommand {
-    api_info: Arc<ApiInfo>,
+pub struct GetTitleCommand<'a> {
+    api_info: &'a TwitchApiInfo,
 }
 
-impl GetTitleCommand {
-    pub fn new(api_info: Arc<ApiInfo>) -> Self {
+impl<'a> GetTitleCommand<'a> {
+    pub fn new(api_info: &TwitchApiInfo) -> Self {
         Self { api_info }
     }
 }
 
 #[async_trait]
-impl Command for GetTitleCommand {
+impl<'a> Command for GetTitleCommand<'a> {
     async fn execute(
         &self,
         ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,

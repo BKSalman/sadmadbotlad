@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, tungstenite};
 
-use crate::ApiInfo;
+use crate::{ApiInfo, TwitchApiInfo};
 
 #[derive(Debug)]
 pub enum AdError {
@@ -80,7 +80,7 @@ pub struct AdData {
     pub retry_after: i64,
 }
 
-pub async fn set_title(new_title: &str, api_info: &ApiInfo) -> Result<(), eyre::Report> {
+pub async fn set_title(new_title: &str, api_info: &TwitchApiInfo) -> Result<(), eyre::Report> {
     // request twitch patch change title
 
     let http_client = Client::new();
@@ -102,7 +102,7 @@ pub async fn set_title(new_title: &str, api_info: &ApiInfo) -> Result<(), eyre::
     Ok(())
 }
 
-pub async fn get_title(api_info: &ApiInfo) -> Result<String, eyre::Report> {
+pub async fn get_title(api_info: &TwitchApiInfo) -> Result<String, eyre::Report> {
     let http_client = Client::new();
 
     let res = http_client
@@ -121,7 +121,7 @@ pub async fn get_title(api_info: &ApiInfo) -> Result<String, eyre::Report> {
     Ok(res["data"][0]["title"].as_str().unwrap().to_string())
 }
 
-pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Report> {
+pub async fn refresh_access_token(api_info: &mut TwitchApiInfo) -> Result<(), eyre::Report> {
     println!("Refreshing token");
     let http_client = Client::new();
 
@@ -147,16 +147,16 @@ pub async fn refresh_access_token(api_info: &mut ApiInfo) -> Result<(), eyre::Re
     let mut configs =
         toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
 
-    configs.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
-    configs.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
+    configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+    configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
     fs::write(
         "config.toml",
         toml::to_string(&configs).expect("parse api info struct to string"),
     )?;
 
-    api_info.twitch_refresh_token = configs.twitch_refresh_token;
-    api_info.twitch_access_token = configs.twitch_access_token;
+    api_info.twitch_refresh_token = configs.twitch.twitch_refresh_token;
+    api_info.twitch_access_token = configs.twitch.twitch_access_token;
 
     Ok(())
 }
@@ -172,8 +172,8 @@ pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> 
     let res = http_client
         .post("https://id.twitch.tv/oauth2/token")
         .form(&json!({
-            "client_id": configs.client_id,
-            "client_secret": configs.client_secret,
+            "client_id": configs.twitch.client_id,
+            "client_secret": configs.twitch.client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": "http://localhost:8080/code",
@@ -193,8 +193,8 @@ pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> 
 
     println!("{:#?}\r", res["scope"].as_array().unwrap());
 
-    configs.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
-    configs.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
+    configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+    configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
     fs::write(
         "config.toml",
@@ -206,7 +206,7 @@ pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> 
 
 pub async fn get_user_id(
     login_name: impl Into<String>,
-    api_info: &ApiInfo,
+    api_info: &TwitchApiInfo,
 ) -> Result<String, eyre::Report> {
     let http_client = reqwest::Client::new();
 
@@ -227,7 +227,7 @@ pub async fn get_user_id(
 
 pub async fn is_vip(
     login_name: impl Into<String>,
-    api_info: &ApiInfo,
+    api_info: &TwitchApiInfo,
 ) -> Result<bool, eyre::Report> {
     let http_client = reqwest::Client::new();
     let user_id = get_user_id(login_name, api_info).await?;
@@ -250,7 +250,7 @@ pub async fn is_vip(
     })
 }
 
-pub async fn run_ads(api_info: &ApiInfo) -> Result<i64, AdError> {
+pub async fn run_ads(api_info: &TwitchApiInfo) -> Result<i64, AdError> {
     let http_client = Client::new();
 
     let res = http_client
