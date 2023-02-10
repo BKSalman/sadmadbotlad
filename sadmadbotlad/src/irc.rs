@@ -11,7 +11,7 @@ use crate::{
     song_requests::{play_song, setup_mpv, SongRequest},
     ApiInfo, TwitchApiInfo, APP,
 };
-use eyre::WrapErr;
+use eyre::Context;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
@@ -51,7 +51,7 @@ pub async fn irc_connect(
 
     let mpv_c = mpv.clone();
 
-    let join_handle = std::thread::spawn(move || play_song(mpv_c, song_receiver, e_sender_c));
+    let t_handle = std::thread::spawn(move || play_song(mpv_c, song_receiver, e_sender_c));
 
     tokio::try_join!(
         flatten(tokio::spawn(read(e_sender, ws_receiver.clone()))),
@@ -67,9 +67,9 @@ pub async fn irc_connect(
             store,
         ))),
     )
-    .wrap_err_with(|| "irc")?;
+    .wrap_err_with(|| "something")?;
 
-    join_handle.join().expect("join")?;
+    t_handle.join().expect("play_song thread")?;
 
     Ok(())
 }

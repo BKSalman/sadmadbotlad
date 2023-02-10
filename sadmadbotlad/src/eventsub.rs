@@ -2,21 +2,31 @@ use std::fs;
 use std::sync::Arc;
 
 use crate::db::Store;
-use crate::{discord::online_notification, ApiInfo};
-use crate::{Alert, AlertEventType, TwitchApiInfo, APP};
+use crate::discord::online_notification;
+use crate::twitch::TwitchTokenMessages;
+use crate::{Alert, AlertEventType, ApiInfo, APP};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-pub async fn eventsub(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Report> {
-    read(api_info, store).await?;
+pub async fn eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    api_info: Arc<ApiInfo>,
+    store: Arc<Store>,
+) -> Result<(), eyre::Report> {
+    read(token_sender, api_info, store).await?;
 
     Ok(())
 }
 
-async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Report> {
+async fn read(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    api_info: Arc<ApiInfo>,
+    store: Arc<Store>,
+) -> Result<(), eyre::Report> {
     let alerts_sender = APP.alerts_sender.clone();
 
     let (socket, _) =
@@ -71,23 +81,23 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
                         "connected" => {
                             let session_id = session["id"].as_str().expect("session id");
 
-                            online_eventsub(&api_info.twitch, session_id).await?;
+                            online_eventsub(token_sender.clone(), session_id).await?;
 
-                            offline_eventsub(&api_info.twitch, session_id).await?;
+                            offline_eventsub(token_sender.clone(), session_id).await?;
 
-                            follow_eventsub(&api_info.twitch, session_id).await?;
+                            follow_eventsub(token_sender.clone(), session_id).await?;
 
-                            raid_eventsub(&api_info.twitch, session_id).await?;
+                            raid_eventsub(token_sender.clone(), session_id).await?;
 
-                            subscribe_eventsub(&api_info.twitch, session_id).await?;
+                            subscribe_eventsub(token_sender.clone(), session_id).await?;
 
-                            resubscribe_eventsub(&api_info.twitch, session_id).await?;
+                            resubscribe_eventsub(token_sender.clone(), session_id).await?;
 
-                            giftsub_eventsub(&api_info.twitch, session_id).await?;
+                            giftsub_eventsub(token_sender.clone(), session_id).await?;
 
-                            rewards_eventsub(&api_info.twitch, session_id).await?;
+                            rewards_eventsub(token_sender.clone(), session_id).await?;
 
-                            cheers_eventsub(&api_info.twitch, session_id).await?;
+                            cheers_eventsub(token_sender.clone(), session_id).await?;
 
                             println!("Subscribed to eventsubs");
                         }
@@ -335,8 +345,20 @@ async fn read(api_info: Arc<ApiInfo>, store: Arc<Store>) -> Result<(), eyre::Rep
     Ok(())
 }
 
-async fn offline_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn offline_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
+
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
         .bearer_auth(api_info.twitch_access_token.clone())
@@ -366,8 +388,19 @@ async fn offline_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(),
     Ok(())
 }
 
-async fn cheers_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn cheers_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -398,8 +431,19 @@ async fn cheers_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), 
     Ok(())
 }
 
-async fn online_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn online_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -430,8 +474,19 @@ async fn online_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), 
     Ok(())
 }
 
-async fn follow_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn follow_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -462,8 +517,19 @@ async fn follow_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), 
     Ok(())
 }
 
-async fn raid_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn raid_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -494,8 +560,19 @@ async fn raid_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), ey
     Ok(())
 }
 
-async fn subscribe_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn subscribe_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -526,8 +603,19 @@ async fn subscribe_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(
     Ok(())
 }
 
-async fn resubscribe_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn resubscribe_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -558,8 +646,19 @@ async fn resubscribe_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result
     Ok(())
 }
 
-async fn giftsub_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn giftsub_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")
@@ -590,8 +689,19 @@ async fn giftsub_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(),
     Ok(())
 }
 
-async fn rewards_eventsub(api_info: &TwitchApiInfo, session: &str) -> Result<(), eyre::Report> {
+async fn rewards_eventsub(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    session: &str,
+) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/eventsub/subscriptions")

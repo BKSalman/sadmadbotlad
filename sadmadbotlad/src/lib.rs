@@ -6,11 +6,10 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use song_requests::SrQueue;
 use tokio::task::JoinHandle;
-use twitch::refresh_access_token;
+use twitch::TwitchApiInfo;
 
 pub mod commands;
 pub mod db;
-pub mod dependencies_handler;
 pub mod discord;
 pub mod event_handler;
 pub mod eventsub;
@@ -21,6 +20,14 @@ pub mod sr_ws_server;
 pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
+
+pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, eyre::Report> {
+    match handle.await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(err)) => Err(err),
+        Err(e) => Err(e).wrap_err_with(|| "handling failed"),
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -212,55 +219,6 @@ impl ApiInfo {
         config.read_to_string(&mut config_str).expect("config str");
 
         Ok(toml::from_str::<ApiInfo>(&config_str)?)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TwitchApiInfo {
-    pub user: String,
-    pub client_id: String,
-    pub client_secret: String,
-    pub twitch_access_token: String,
-    pub twitch_refresh_token: String,
-}
-
-pub struct Twitch {
-    client: reqwest::Client,
-    api_info: TwitchApiInfo,
-}
-
-impl Twitch {
-    pub fn new(api_info: TwitchApiInfo) -> Self {
-        let client = reqwest::Client::new();
-        Self { client, api_info }
-    }
-
-    pub async fn get_token(&mut self) -> eyre::Result<String> {
-        let http_client = reqwest::Client::new();
-
-        let res = http_client
-            .get("https://id.twitch.tv/oauth2/validate")
-            .header(
-                "Authorization",
-                format!("OAuth {}", self.api_info.twitch_access_token),
-            )
-            .send()
-            .await?;
-
-        if !res.status().is_success() {
-            println!("token expired. Refreshing...");
-            refresh_access_token(&mut self.api_info).await?;
-        }
-
-        Ok(self.api_info.twitch_access_token.clone())
-    }
-}
-
-pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, eyre::Report> {
-    match handle.await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(err)) => Err(err),
-        Err(e) => Err(e).wrap_err_with(|| "handling failed"),
     }
 }
 

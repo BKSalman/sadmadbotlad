@@ -3,15 +3,19 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
 };
 
+use chrono::{Duration, Local};
 use eyre::Context;
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::net::TcpListener;
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, oneshot},
+};
 use tokio_tungstenite::{accept_async, tungstenite};
 
-use crate::{ApiInfo, TwitchApiInfo};
+use crate::ApiInfo;
 
 #[derive(Debug)]
 pub enum AdError {
@@ -119,46 +123,6 @@ pub async fn get_title(api_info: &TwitchApiInfo) -> Result<String, eyre::Report>
     let res = res.json::<Value>().await?;
 
     Ok(res["data"][0]["title"].as_str().unwrap().to_string())
-}
-
-pub async fn refresh_access_token(api_info: &mut TwitchApiInfo) -> Result<(), eyre::Report> {
-    println!("Refreshing token");
-    let http_client = Client::new();
-
-    let res = http_client
-        .post("https://id.twitch.tv/oauth2/token")
-        .json(&json!({
-            "client_id": api_info.client_id,
-            "client_secret": api_info.client_secret,
-            "grant_type": "refresh_token",
-            "refresh_token": api_info.twitch_refresh_token,
-        }))
-        .send()
-        .await?;
-
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("Unauthorized:: could not refresh access token"));
-    }
-
-    let res = res.json::<Value>().await?;
-
-    let config_str = fs::read_to_string("config.toml").wrap_err_with(|| "no config file")?;
-
-    let mut configs =
-        toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
-
-    configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
-    configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
-
-    fs::write(
-        "config.toml",
-        toml::to_string(&configs).expect("parse api info struct to string"),
-    )?;
-
-    api_info.twitch_refresh_token = configs.twitch.twitch_refresh_token;
-    api_info.twitch_access_token = configs.twitch.twitch_access_token;
-
-    Ok(())
 }
 
 pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> {
@@ -310,4 +274,129 @@ pub async fn access_token() -> eyre::Result<()> {
     }
 
     Ok(())
+}
+
+// TODO: no need to store all of these in this struct
+// make it ONLY for twitch token
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TwitchApiInfo {
+    pub user: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub twitch_access_token: String,
+    pub twitch_refresh_token: String,
+    #[serde(default)]
+    pub expires_at: chrono::NaiveDateTime,
+}
+
+pub struct TwitchToken {
+    receiver: mpsc::UnboundedReceiver<TwitchTokenMessages>,
+    client: reqwest::Client,
+    api_info: TwitchApiInfo,
+}
+
+#[derive(Debug)]
+pub enum TwitchTokenMessages {
+    GetToken(oneshot::Sender<TwitchApiInfo>),
+}
+
+impl TwitchToken {
+    pub fn new(
+        api_info: TwitchApiInfo,
+        receiver: mpsc::UnboundedReceiver<TwitchTokenMessages>,
+    ) -> Self {
+        let client = reqwest::Client::new();
+        Self {
+            client,
+            api_info,
+            receiver,
+        }
+    }
+
+    pub async fn handle_messages(mut self) -> eyre::Result<()> {
+        while let Some(message) = self.receiver.recv().await {
+            match message {
+                TwitchTokenMessages::GetToken(response) => {
+                    println!("responding with token...");
+
+                    self.update_token().await?;
+
+                    response
+                        .send(self.api_info.clone())
+                        .expect("Could not send token");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn update_token(&mut self) -> eyre::Result<()> {
+        // TODO: save expire time to check locally
+
+        let now =
+            chrono::NaiveDateTime::from_timestamp_millis(Local::now().timestamp_millis()).unwrap();
+
+        if self.api_info.expires_at > now {
+            return Ok(());
+        }
+
+        let res = self
+            .client
+            .get("https://id.twitch.tv/oauth2/validate")
+            .header(
+                "Authorization",
+                format!("OAuth {}", self.api_info.twitch_access_token),
+            )
+            .send()
+            .await?;
+
+        if !res.status().is_success() {
+            println!("token expired. Refreshing...");
+            self.refresh_access_token().await?;
+        }
+
+        self.api_info.expires_at = now.checked_add_signed(Duration::seconds(3600)).unwrap();
+
+        Ok(())
+    }
+
+    pub async fn refresh_access_token(&mut self) -> Result<(), eyre::Report> {
+        println!("Refreshing token");
+        let http_client = Client::new();
+
+        let res = http_client
+            .post("https://id.twitch.tv/oauth2/token")
+            .json(&json!({
+                "client_id": self.api_info.client_id,
+                "client_secret": self.api_info.client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": self.api_info.twitch_refresh_token,
+            }))
+            .send()
+            .await?;
+
+        if res.status() == StatusCode::UNAUTHORIZED {
+            return Err(eyre::eyre!("Unauthorized:: could not refresh access token"));
+        }
+
+        let res = res.json::<Value>().await?;
+
+        let config_str = fs::read_to_string("config.toml").wrap_err_with(|| "no config file")?;
+
+        let mut configs =
+            toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
+
+        configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+        configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
+
+        fs::write(
+            "config.toml",
+            toml::to_string(&configs).expect("parse api info struct to string"),
+        )?;
+
+        self.api_info.twitch_refresh_token = configs.twitch.twitch_refresh_token;
+        self.api_info.twitch_access_token = configs.twitch.twitch_access_token;
+
+        Ok(())
+    }
 }

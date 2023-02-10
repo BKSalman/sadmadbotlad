@@ -271,3 +271,26 @@ async fn front_end_receiver(
         }
     }
 }
+
+/*
+    //assuming both service and request_handling are threads
+    let shared_data = ();
+    let channels = ();
+    service(shared_data, channels);
+    request_handling(shared_data, channels);
+
+
+    or
+
+    let data = ();
+    let queue = ();
+    loop {
+      service(queue, data);
+      service(queue, data);
+      service(queue, data);
+
+      for item in queue {
+        handle(item, data);
+      }
+    }
+*/
