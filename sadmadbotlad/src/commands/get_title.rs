@@ -14,7 +14,7 @@ pub struct GetTitleCommand<'a> {
 }
 
 impl<'a> GetTitleCommand<'a> {
-    pub fn new(api_info: &TwitchApiInfo) -> Self {
+    pub fn new(api_info: &'a TwitchApiInfo) -> Self {
         Self { api_info }
     }
 }

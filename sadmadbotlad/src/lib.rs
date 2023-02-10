@@ -10,6 +10,7 @@ use twitch::refresh_access_token;
 
 pub mod commands;
 pub mod db;
+pub mod dependencies_handler;
 pub mod discord;
 pub mod event_handler;
 pub mod eventsub;
@@ -20,11 +21,6 @@ pub mod sr_ws_server;
 pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
-
-pub enum TwitchApiInfoEvent {
-    Write(TwitchApiInfo),
-    Read,
-}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -215,15 +211,7 @@ impl ApiInfo {
         let mut config_str = String::new();
         config.read_to_string(&mut config_str).expect("config str");
 
-        match toml::from_str::<ApiInfo>(&config_str) {
-            Ok(mut api_info) => {
-                refresh_access_token(&mut api_info.twitch).await?;
-                Ok(api_info)
-            }
-            Err(e) => {
-                panic!("Api Info:: {e}");
-            }
-        }
+        Ok(toml::from_str::<ApiInfo>(&config_str)?)
     }
 }
 
@@ -236,7 +224,17 @@ pub struct TwitchApiInfo {
     pub twitch_refresh_token: String,
 }
 
-impl TwitchApiInfo {
+pub struct Twitch {
+    client: reqwest::Client,
+    api_info: TwitchApiInfo,
+}
+
+impl Twitch {
+    pub fn new(api_info: TwitchApiInfo) -> Self {
+        let client = reqwest::Client::new();
+        Self { client, api_info }
+    }
+
     pub async fn get_token(&mut self) -> eyre::Result<String> {
         let http_client = reqwest::Client::new();
 
@@ -244,17 +242,17 @@ impl TwitchApiInfo {
             .get("https://id.twitch.tv/oauth2/validate")
             .header(
                 "Authorization",
-                format!("OAuth {}", self.twitch_access_token),
+                format!("OAuth {}", self.api_info.twitch_access_token),
             )
             .send()
             .await?;
 
         if !res.status().is_success() {
             println!("token expired. Refreshing...");
-            refresh_access_token(self).await?;
+            refresh_access_token(&mut self.api_info).await?;
         }
 
-        Ok(self.twitch_access_token.clone())
+        Ok(self.api_info.twitch_access_token.clone())
     }
 }
 
