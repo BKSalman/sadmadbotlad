@@ -43,19 +43,12 @@ pub struct Config {
 #[derive(Debug)]
 pub struct App {
     pub config: Config,
-    pub alerts_sender: tokio::sync::broadcast::Sender<Alert>,
-    pub sr_sender: tokio::sync::broadcast::Sender<SrEvent>,
 }
 
 impl App {
     pub fn new() -> Self {
-        let (alerts_sender, _) = tokio::sync::broadcast::channel::<Alert>(100);
-        let (sr_sender, _) = tokio::sync::broadcast::channel::<SrEvent>(100);
-
         Self {
             config: Config::parse(),
-            alerts_sender,
-            sr_sender,
         }
     }
 }

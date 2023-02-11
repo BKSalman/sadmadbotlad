@@ -39,14 +39,13 @@ const WARRANTY: &str = include_str!("../warranty.txt");
 const RULES: &str = include_str!("../rules.txt");
 
 pub async fn irc_connect(
+    alerts_sender: broadcast::Sender<Alert>,
     song_receiver: mpsc::Receiver<SongRequest>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     store: Arc<Store>,
 ) -> eyre::Result<()> {
     println!("Starting IRC");
-
-    let alerts_sender = APP.alerts_sender.clone();
 
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 

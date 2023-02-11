@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::db::Store;
 use crate::discord::online_notification;
 use crate::twitch::TwitchTokenMessages;
-use crate::{Alert, AlertEventType, ApiInfo, APP};
+use crate::{Alert, AlertEventType, ApiInfo};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
@@ -13,22 +13,22 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
+    alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
-    read(token_sender, api_info, store).await?;
+    read(alerts_sender, token_sender, api_info, store).await?;
 
     Ok(())
 }
 
 async fn read(
+    alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
-    let alerts_sender = APP.alerts_sender.clone();
-
     let (socket, _) =
         connect_async(Url::parse("wss://eventsub-beta.wss.twitch.tv/ws").expect("Url parsed"))
             .await

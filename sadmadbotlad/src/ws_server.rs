@@ -14,7 +14,10 @@ use tokio_tungstenite::{
 
 use crate::{db::Store, Alert, APP};
 
-pub async fn ws_server(store: Arc<Store>) -> Result<(), eyre::Report> {
+pub async fn ws_server(
+    alerts_sender: tokio::sync::broadcast::Sender<Alert>,
+    store: Arc<Store>,
+) -> Result<(), eyre::Report> {
     println!("Starting WebSocket Server");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
@@ -28,25 +31,34 @@ pub async fn ws_server(store: Arc<Store>) -> Result<(), eyre::Report> {
 
         println!("Peer address: {}", peer);
 
-        tokio::spawn(accept_connection(peer, stream, store.clone()));
+        tokio::spawn(accept_connection(
+            alerts_sender.to_owned(),
+            peer,
+            stream,
+            store.clone(),
+        ));
     }
 
     Ok(())
 }
 
-async fn accept_connection(peer: SocketAddr, stream: TcpStream, store: Arc<Store>) {
-    if let Err(e) = handle_connection(peer, stream, store).await {
+async fn accept_connection(
+    alerts_sender: tokio::sync::broadcast::Sender<Alert>,
+    peer: SocketAddr,
+    stream: TcpStream,
+    store: Arc<Store>,
+) {
+    if let Err(e) = handle_connection(alerts_sender, peer, stream, store).await {
         println!("Error processing connection: {}", e)
     }
 }
 
 async fn handle_connection(
+    alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     peer: SocketAddr,
     stream: TcpStream,
     store: Arc<Store>,
 ) -> eyre::Result<()> {
-    let alerts_sender = APP.alerts_sender.clone();
-
     let alerts_receiver = alerts_sender.subscribe();
 
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
