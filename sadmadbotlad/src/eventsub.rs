@@ -351,11 +351,11 @@ async fn offline_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -394,11 +394,11 @@ async fn cheers_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -437,11 +437,11 @@ async fn online_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -480,11 +480,11 @@ async fn follow_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -523,11 +523,11 @@ async fn raid_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -566,11 +566,11 @@ async fn subscribe_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -609,11 +609,11 @@ async fn resubscribe_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -652,11 +652,11 @@ async fn giftsub_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 
@@ -695,11 +695,11 @@ async fn rewards_eventsub(
 ) -> Result<(), eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+    let (send, recv) = oneshot::channel();
 
-    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+    token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
-    let Ok(api_info) = one_shot_receiver.await else {
+    let Ok(api_info) = recv.await else {
         return Err(eyre::eyre!("Failed to get token"));
     };
 

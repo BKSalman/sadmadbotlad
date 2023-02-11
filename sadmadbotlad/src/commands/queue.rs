@@ -5,16 +5,16 @@ use futures_util::{stream::SplitSink, SinkExt};
 use tokio::{net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::{irc::to_irc_message, song_requests::SrQueue};
+use crate::{irc::to_irc_message, song_requests::Queue};
 
 use super::Command;
 
 pub struct QueueCommand {
-    queue: Arc<RwLock<SrQueue>>,
+    queue: Arc<RwLock<Queue>>,
 }
 
 impl QueueCommand {
-    pub fn new(queue: Arc<RwLock<SrQueue>>) -> Self {
+    pub fn new(queue: Arc<RwLock<Queue>>) -> Self {
         QueueCommand { queue }
     }
 }

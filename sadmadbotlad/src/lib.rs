@@ -4,14 +4,14 @@ use clap::{command, Parser};
 use eyre::WrapErr;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use song_requests::SrQueue;
+use song_requests::Queue;
 use tokio::task::JoinHandle;
 use twitch::TwitchApiInfo;
 
 pub mod commands;
 pub mod db;
 pub mod discord;
-pub mod event_handler;
+// pub mod event_handler;
 pub mod eventsub;
 pub mod irc;
 pub mod obs_websocket;
@@ -197,7 +197,7 @@ pub struct Alert {
 #[derive(Debug, Clone)]
 pub enum SrEvent {
     QueueRequest,
-    QueueResponse(Arc<tokio::sync::RwLock<SrQueue>>),
+    QueueResponse(Arc<tokio::sync::RwLock<Queue>>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

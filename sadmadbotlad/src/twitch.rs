@@ -1,5 +1,5 @@
 use std::{
-    fmt, fs,
+    fs,
     net::{Ipv4Addr, SocketAddrV4},
 };
 
@@ -16,29 +16,6 @@ use tokio::{
 use tokio_tungstenite::{accept_async, tungstenite};
 
 use crate::ApiInfo;
-
-#[derive(Debug)]
-pub enum AdError {
-    TooManyRequests,
-    UnAuthorized,
-    RequestErr(reqwest::Error),
-}
-
-impl fmt::Display for AdError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self {
-            Self::TooManyRequests => {
-                write!(f, "Too many commerial requests")
-            }
-            Self::UnAuthorized => {
-                write!(f, "Unauthorized commercial request")
-            }
-            Self::RequestErr(e) => {
-                write!(f, "{e}")
-            }
-        }
-    }
-}
 
 #[allow(unused)]
 #[derive(Deserialize)]
@@ -84,10 +61,21 @@ pub struct AdData {
     pub retry_after: i64,
 }
 
-pub async fn set_title(new_title: &str, api_info: &TwitchApiInfo) -> Result<(), eyre::Report> {
+pub async fn set_title(
+    new_title: &str,
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+) -> Result<(), eyre::Report> {
     // request twitch patch change title
 
     let http_client = Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .patch("https://api.twitch.tv/helix/channels?broadcaster_id=143306668")
@@ -106,8 +94,18 @@ pub async fn set_title(new_title: &str, api_info: &TwitchApiInfo) -> Result<(), 
     Ok(())
 }
 
-pub async fn get_title(api_info: &TwitchApiInfo) -> Result<String, eyre::Report> {
+pub async fn get_title(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+) -> Result<String, eyre::Report> {
     let http_client = Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .get("https://api.twitch.tv/helix/channels?broadcaster_id=143306668")
@@ -214,8 +212,18 @@ pub async fn is_vip(
     })
 }
 
-pub async fn run_ads(api_info: &TwitchApiInfo) -> Result<i64, AdError> {
+pub async fn run_ads(
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+) -> eyre::Result<i64> {
     let http_client = Client::new();
+
+    let (one_shot_sender, one_shot_receiver) = oneshot::channel();
+
+    token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
+
+    let Ok(api_info) = one_shot_receiver.await else {
+        return Err(eyre::eyre!("Failed to get token"));
+    };
 
     let res = http_client
         .post("https://api.twitch.tv/helix/channels/commercial")
@@ -226,18 +234,17 @@ pub async fn run_ads(api_info: &TwitchApiInfo) -> Result<i64, AdError> {
             "length": "90",
         }))
         .send()
-        .await
-        .map_err(AdError::RequestErr)?;
+        .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(AdError::UnAuthorized);
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "{} :: message: {}",
+            res.status(),
+            res.text().await?
+        ));
     }
 
-    if res.status() == StatusCode::TOO_MANY_REQUESTS {
-        return Err(AdError::TooManyRequests);
-    }
-
-    let res = res.json::<TwitchAd>().await.map_err(AdError::RequestErr)?;
+    let res = res.json::<TwitchAd>().await?;
 
     println!("{:#?}", res);
 
@@ -317,8 +324,6 @@ impl TwitchToken {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 TwitchTokenMessages::GetToken(response) => {
-                    println!("responding with token...");
-
                     self.update_token().await?;
 
                     response

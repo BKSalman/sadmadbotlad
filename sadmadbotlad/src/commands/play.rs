@@ -6,17 +6,17 @@ use libmpv::Mpv;
 use tokio::{net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use crate::{irc::to_irc_message, song_requests::SrQueue};
+use crate::{irc::to_irc_message, song_requests::Queue};
 
 use super::Command;
 
 pub struct PlayCommand {
-    queue: Arc<RwLock<SrQueue>>,
+    queue: Arc<RwLock<Queue>>,
     mpv: Arc<Mpv>,
 }
 
 impl PlayCommand {
-    pub fn new(queue: Arc<RwLock<SrQueue>>, mpv: Arc<Mpv>) -> Self {
+    pub fn new(queue: Arc<RwLock<Queue>>, mpv: Arc<Mpv>) -> Self {
         Self { queue, mpv }
     }
 }

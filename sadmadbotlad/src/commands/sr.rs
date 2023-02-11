@@ -10,14 +10,14 @@ use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use crate::{
     irc::to_irc_message,
-    song_requests::{SongRequest, SrQueue},
+    song_requests::{Queue, SongRequest},
     ApiInfo,
 };
 
 use super::Command;
 
 pub struct SrCommand {
-    queue: Arc<RwLock<SrQueue>>,
+    queue: Arc<RwLock<Queue>>,
     song: String,
     sender: String,
     song_sender: Sender<SongRequest>,
@@ -26,7 +26,7 @@ pub struct SrCommand {
 
 impl SrCommand {
     pub fn new(
-        queue: Arc<RwLock<SrQueue>>,
+        queue: Arc<RwLock<Queue>>,
         song: String,
         sender: String,
         song_sender: Sender<SongRequest>,
@@ -53,8 +53,8 @@ impl Command for SrCommand {
             .write()
             .await
             .sr(
-                &self.song,
                 &self.sender,
+                &self.song,
                 self.song_sender.clone(),
                 self.api_info.clone(),
             )

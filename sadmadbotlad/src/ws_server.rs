@@ -55,25 +55,29 @@ async fn handle_connection(
 
     let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
 
-    let ws_senderc = ws_sender.clone();
+    let t_handle = tokio::spawn(handle_front_end_events(
+        alerts_receiver,
+        ws_sender.clone(),
+        peer,
+    ));
 
-    let ws_sendercc = ws_sender.clone();
+    let forever = {
+        let ws_sender = ws_sender.clone();
 
-    let t_handle = tokio::spawn(handle_front_end_events(alerts_receiver, ws_senderc, peer));
+        tokio::task::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
 
-    let forever = tokio::task::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-        loop {
-            interval.tick().await;
-            ws_sendercc
-                .lock()
-                .await
-                .send(Message::Ping(vec![]))
-                .await
-                .expect("send ping");
-        }
-    });
+            loop {
+                interval.tick().await;
+                ws_sender
+                    .lock()
+                    .await
+                    .send(Message::Ping(vec![]))
+                    .await
+                    .expect("send ping");
+            }
+        })
+    };
 
     while let Some(msg) = ws_receiver.next().await {
         match msg {
