@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    process,
+    fs, process,
     sync::Arc,
     time::Duration,
 };
@@ -51,7 +51,7 @@ pub async fn irc_connect(
 
     let (ws_sender, ws_receiver) = socket.split();
 
-    let ws_receiver = Arc::new(tokio::sync::Mutex::new(ws_receiver));
+    // let ws_receiver = Arc::new(tokio::sync::Mutex::new(ws_receiver));
 
     // let e_sender_c = e_sender.clone();
 
@@ -67,7 +67,7 @@ pub async fn irc_connect(
     tokio::try_join!(
         flatten(tokio::spawn(read(
             // e_sender,
-            ws_receiver.clone(),
+            ws_receiver,
             ws_sender,
             queue_sender,
             token_sender,
@@ -126,7 +126,7 @@ pub async fn irc_login(
 
 async fn read(
     // event_sender: UnboundedSender<Event>,
-    ws_receiver: Arc<tokio::sync::Mutex<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
+    mut ws_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
@@ -134,15 +134,13 @@ async fn read(
     alerts_sender: broadcast::Sender<Alert>,
     store: Arc<Store>,
 ) -> eyre::Result<()> {
-    let mut locked_ws_receiver = ws_receiver.lock().await;
-
     // let event_senderc = event_sender.clone();
 
     let voters = Arc::new(RwLock::new(HashSet::new()));
 
     irc_login(&mut ws_sender, token_sender.clone()).await?;
 
-    while let Some(msg) = locked_ws_receiver.next().await {
+    while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(Message::Ping(ping)) => {
                 println!("IRC WebSocket Ping {ping:?}");
@@ -543,11 +541,16 @@ async fn read(
                         continue;
                     }
                     "workingon" | "wo" => {
+                        fs::write(
+                            String::from("workingon.txt"),
+                            format!("Currently: {}", args),
+                        )?;
+
                         ws_sender
-                            .send(Message::Text(to_irc_message(
-                                "You can check what I'm working in here: \
-                                https://gist.github.com/BKSalman/090658c8f67cc94bfb9d582d5be68ed4",
-                            )))
+                            .send(Message::Text(to_irc_message(&format!(
+                                "Updated current working on to \"{}\"",
+                                args
+                            ))))
                             .await?;
                     }
                     "pixelperfect" | "pp" => {
