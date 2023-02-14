@@ -8,7 +8,6 @@ use surrealdb::{
 
 use crate::{collection, AlertEventType, TakeVal, Wrapper};
 
-// TODO: use stuff like this for database data
 #[derive(Deserialize, Serialize)]
 struct AlertDB {
     r#type: String,

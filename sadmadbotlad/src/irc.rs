@@ -7,13 +7,10 @@ use std::{
 
 use crate::{
     db::Store,
-    // event_handler::{Event, IrcChat, IrcEvent, IrcWs},
     flatten,
     song_requests::{play_song, setup_mpv, QueueMessages, SongRequest},
     twitch::{get_title, set_title, TwitchTokenMessages},
-    Alert,
-    AlertEventType,
-    APP,
+    Alert, AlertEventType, APP,
 };
 use eyre::Context;
 use futures_util::{

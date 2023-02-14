@@ -2,8 +2,8 @@ use std::fs;
 use std::sync::Arc;
 
 use crate::db::Store;
-use crate::discord::online_notification;
-use crate::twitch::TwitchTokenMessages;
+use crate::discord::{offline_notification, online_notification};
+use crate::twitch::{TwitchApiResponse, TwitchTokenMessages};
 use crate::{Alert, AlertEventType, ApiInfo};
 use eyre::WrapErr;
 use futures_util::{SinkExt, StreamExt};
@@ -38,6 +38,10 @@ async fn read(
             .wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
 
         let (mut sender, mut receiver) = socket.split();
+
+        let mut discord_msg_id = String::new();
+        let mut title = String::new();
+        let mut game_name = String::new();
 
         while let Some(msg) = receiver.next().await {
             match msg {
@@ -124,7 +128,56 @@ async fn read(
 
                         match sub_type {
                             "stream.online" => {
-                                online_notification(&api_info).await?;
+                                let http_client = reqwest::Client::new();
+
+                                let (send, recv) = oneshot::channel();
+
+                                token_sender.send(TwitchTokenMessages::GetToken(send))?;
+
+                                let Ok(twitch_api_info) = recv.await else {
+                                    return Err(eyre::eyre!("Could not get token"));
+                                };
+
+                                let res = http_client
+                                    .get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
+                                    .bearer_auth(twitch_api_info.twitch_access_token.clone())
+                                    .header("Client-Id", twitch_api_info.client_id.clone())
+                                    .send()
+                                    .await?;
+
+                                if !res.status().is_success() {
+                                    return Err(eyre::eyre!(
+                                        "status: {} :: message: {}",
+                                        res.status(),
+                                        res.text().await?
+                                    ));
+                                }
+
+                                let res = res.json::<TwitchApiResponse>().await?;
+
+                                let timestamp =
+                                    chrono::DateTime::parse_from_rfc3339(&res.data[0].started_at)?
+                                        .timestamp();
+
+                                title = res.data[0].title.clone();
+
+                                game_name = res.data[0].game_name.clone();
+
+                                discord_msg_id =
+                                    online_notification(&title, &game_name, timestamp, &api_info)
+                                        .await?;
+                            }
+                            "stream.offline" => {
+                                if title.is_empty() || game_name.is_empty() {
+                                    continue;
+                                }
+                                offline_notification(
+                                    &title,
+                                    &game_name,
+                                    &api_info,
+                                    &discord_msg_id,
+                                )
+                                .await?;
                             }
                             "channel.follow" => {
                                 let follower = json_lossy["payload"]["event"]["user_name"]

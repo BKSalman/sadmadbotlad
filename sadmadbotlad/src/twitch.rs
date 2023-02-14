@@ -336,8 +336,6 @@ impl TwitchToken {
     }
 
     pub async fn update_token(&mut self) -> eyre::Result<()> {
-        // TODO: save expire time to check locally
-
         let now =
             chrono::NaiveDateTime::from_timestamp_millis(Local::now().timestamp_millis()).unwrap();
 
