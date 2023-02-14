@@ -10,6 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub async fn eventsub(
@@ -51,18 +52,23 @@ async fn read(
                 }
                 Ok(Message::Close(reason)) => {
                     if let Some(close_frame) = &reason {
-                        if u16::from(close_frame.code) == 4004 {
-                            original_connection = false;
-                            continue 'restart;
+                        match close_frame.code {
+                            CloseCode::Reserved(code) => {
+                                if code == 4004 {
+                                    original_connection = false;
+                                    continue 'restart;
+                                }
+                            }
+                            CloseCode::Library(code) => {
+                                if code == 4002 {
+                                    println!("websocket connection closed: {reason:#?}");
+                                    original_connection = true;
+                                    continue 'restart;
+                                }
+                            }
+                            _ => panic!("websocket connection closed: {reason:#?}"),
                         }
                     }
-                    // TODO: maybe check if it's a minor reason then handle it
-                    // otherwise just panic
-
-                    // original_connection = true;
-                    // connection_url = String::from("wss://eventsub-beta.wss.twitch.tv/ws");
-                    // continue 'restart;
-
                     panic!("websocket connection closed: {reason:#?}");
                 }
                 Ok(msg) => {
