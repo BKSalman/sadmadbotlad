@@ -51,10 +51,6 @@ pub async fn irc_connect(
 
     let (ws_sender, ws_receiver) = socket.split();
 
-    // let ws_receiver = Arc::new(tokio::sync::Mutex::new(ws_receiver));
-
-    // let e_sender_c = e_sender.clone();
-
     let mpv = Arc::new(setup_mpv());
 
     let mpv_c = mpv.clone();
@@ -64,29 +60,16 @@ pub async fn irc_connect(
         std::thread::spawn(move || play_song(mpv_c, song_receiver, queue_sender))
     };
 
-    tokio::try_join!(
-        flatten(tokio::spawn(read(
-            // e_sender,
-            ws_receiver,
-            ws_sender,
-            queue_sender,
-            token_sender,
-            mpv,
-            alerts_sender,
-            store,
-        ))),
-        // flatten(tokio::spawn(event_handler(
-        //     mpv,
-        //     e_receiver,
-        //     ws_receiver,
-        //     alerts_sender,
-        //     sr_sender,
-        //     api_info,
-        //     token_sender,
-        //     store,
-        // ))),
-    )
-    .wrap_err_with(|| "something")?;
+    tokio::try_join!(flatten(tokio::spawn(read(
+        ws_receiver,
+        ws_sender,
+        queue_sender,
+        token_sender,
+        mpv,
+        alerts_sender,
+        store,
+    ))),)
+    .wrap_err_with(|| "irc")?;
 
     t_handle.join().expect("play_song thread")?;
 
@@ -125,7 +108,6 @@ pub async fn irc_login(
 }
 
 async fn read(
-    // event_sender: UnboundedSender<Event>,
     mut ws_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
@@ -134,167 +116,197 @@ async fn read(
     alerts_sender: broadcast::Sender<Alert>,
     store: Arc<Store>,
 ) -> eyre::Result<()> {
-    // let event_senderc = event_sender.clone();
-
     let voters = Arc::new(RwLock::new(HashSet::new()));
 
     irc_login(&mut ws_sender, token_sender.clone()).await?;
 
-    while let Some(msg) = ws_receiver.next().await {
-        match msg {
-            Ok(Message::Ping(ping)) => {
-                println!("IRC WebSocket Ping {ping:?}");
-                ws_sender.send(Message::Pong(vec![])).await?;
-            }
-            Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
-                let parsed_msg = parse_irc(&msg);
+    'restart: loop {
+        while let Some(msg) = ws_receiver.next().await {
+            match msg {
+                Ok(Message::Ping(ping)) => {
+                    println!("IRC WebSocket Ping {ping:?}");
+                    ws_sender.send(Message::Pong(vec![])).await?;
+                }
+                Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
+                    let parsed_msg = parse_irc(&msg);
 
-                let (command, args) = if parsed_msg.tags.get_reply().is_ok() {
-                    // remove mention
-                    let (_, message) = parsed_msg.message.split_once(' ').expect("remove mention");
+                    let (command, args) = if parsed_msg.tags.get_reply().is_ok() {
+                        // remove mention
+                        let (_, message) =
+                            parsed_msg.message.split_once(' ').expect("remove mention");
 
-                    if !message.starts_with(APP.config.cmd_delim) {
-                        continue;
-                    }
-
-                    message.split_once(' ').unwrap_or((message, ""))
-                } else {
-                    if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
-                        continue;
-                    }
-
-                    parsed_msg
-                        .message
-                        .split_once(' ')
-                        .unwrap_or((&parsed_msg.message, ""))
-                };
-
-                match &command.to_lowercase()[1..] {
-                    "ping" | "وكز" => {
-                        if command.is_ascii() {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&format!(
-                                    "{}pong",
-                                    APP.config.cmd_delim
-                                ))))
-                                .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&format!(
-                                    "{}يكز",
-                                    APP.config.cmd_delim
-                                ))))
-                                .await?;
-                        }
-                    }
-                    "db" => {
-                        let events = store.get_events().await?;
-
-                        println!("{events:#?}");
-                    }
-                    "sr" => {
-                        if args.is_empty() {
-                            let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
-                            ws_sender.send(Message::Text(to_irc_message(&e))).await?;
+                        if !message.starts_with(APP.config.cmd_delim) {
                             continue;
                         }
 
-                        let (send, recv) = oneshot::channel();
+                        message.split_once(' ').unwrap_or((message, ""))
+                    } else {
+                        if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
+                            continue;
+                        }
 
-                        queue_sender.send(QueueMessages::Sr(
-                            (parsed_msg.sender, args.to_string()),
-                            send,
-                        ))?;
+                        parsed_msg
+                            .message
+                            .split_once(' ')
+                            .unwrap_or((&parsed_msg.message, ""))
+                    };
 
-                        let Ok(message) = recv.await else {
+                    match &command.to_lowercase()[1..] {
+                        "ping" | "وكز" => {
+                            if command.is_ascii() {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&format!(
+                                        "{}pong",
+                                        APP.config.cmd_delim
+                                    ))))
+                                    .await?;
+                            } else {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&format!(
+                                        "{}يكز",
+                                        APP.config.cmd_delim
+                                    ))))
+                                    .await?;
+                            }
+                        }
+                        "db" => {
+                            let events = store.get_events().await?;
+
+                            println!("{events:#?}");
+                        }
+                        "sr" => {
+                            if args.is_empty() {
+                                let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
+                                ws_sender.send(Message::Text(to_irc_message(&e))).await?;
+                                continue;
+                            }
+
+                            let (send, recv) = oneshot::channel();
+
+                            queue_sender.send(QueueMessages::Sr(
+                                (parsed_msg.sender, args.to_string()),
+                                send,
+                            ))?;
+
+                            let Ok(message) = recv.await else {
                             return Err(eyre::eyre!("Could not request song"));
                         };
 
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&message)))
-                            .await?;
-                    }
-                    "skip" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
                             ws_sender
                                 .send(Message::Text(to_irc_message(&message)))
                                 .await?;
-                            continue;
                         }
-
-                        let (send, recv) = oneshot::channel();
-
-                        queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                        let Ok(current_song) = recv.await else {
-                            return Err(eyre::eyre!("Could not get current song"));
-                        };
-
-                        let mut message = String::new();
-
-                        if let Some(song) = current_song {
-                            queue_sender.send(QueueMessages::Dequeue)?;
-
-                            if mpv.playlist_next_force().is_ok() {
-                                message = format!("Skipped: {}", song.title);
+                        "skip" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
                             }
-                        } else {
-                            message = String::from("No song playing");
-                        }
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&message)))
-                            .await?;
-                    }
-                    "voteskip" => {
-                        // TODO: figure out how to make every vote reset the timer (timeout??)
-
-                        let votersc = voters.clone();
-
-                        let mut t_handle: Option<JoinHandle<()>> = None;
-
-                        if voters.read().await.len() == 0 {
-                            t_handle = Some(tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_secs(20)).await;
-                                votersc.write().await.clear();
-                                println!("reset counter");
-                            }));
-                        }
-
-                        voters.write().await.insert(parsed_msg.sender);
-
-                        println!("{}", voters.read().await.len());
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&format!(
-                                "{}/4 skip votes",
-                                voters.read().await.len()
-                            ))))
-                            .await?;
-
-                        if voters.read().await.len() >= 4 {
-                            voters.write().await.clear();
 
                             let (send, recv) = oneshot::channel();
 
                             queue_sender.send(QueueMessages::GetCurrentSong(send))?;
 
                             let Ok(current_song) = recv.await else {
+                            return Err(eyre::eyre!("Could not get current song"));
+                        };
+
+                            let mut message = String::new();
+
+                            if let Some(song) = current_song {
+                                queue_sender.send(QueueMessages::Dequeue)?;
+
+                                if mpv.playlist_next_force().is_ok() {
+                                    message = format!("Skipped: {}", song.title);
+                                }
+                            } else {
+                                message = String::from("No song playing");
+                            }
+
+                            ws_sender
+                                .send(Message::Text(to_irc_message(&message)))
+                                .await?;
+                        }
+                        "voteskip" => {
+                            // TODO: figure out how to make every vote reset the timer (timeout??)
+
+                            let votersc = voters.clone();
+
+                            let mut t_handle: Option<JoinHandle<()>> = None;
+
+                            if voters.read().await.len() == 0 {
+                                t_handle = Some(tokio::spawn(async move {
+                                    tokio::time::sleep(Duration::from_secs(20)).await;
+                                    votersc.write().await.clear();
+                                    println!("reset counter");
+                                }));
+                            }
+
+                            voters.write().await.insert(parsed_msg.sender);
+
+                            println!("{}", voters.read().await.len());
+
+                            ws_sender
+                                .send(Message::Text(to_irc_message(&format!(
+                                    "{}/4 skip votes",
+                                    voters.read().await.len()
+                                ))))
+                                .await?;
+
+                            if voters.read().await.len() >= 4 {
+                                voters.write().await.clear();
+
+                                let (send, recv) = oneshot::channel();
+
+                                queue_sender.send(QueueMessages::GetCurrentSong(send))?;
+
+                                let Ok(current_song) = recv.await else {
                                 return Err(eyre::eyre!("Could not get current song"));
                             };
 
-                            let message = if let Some(song) = current_song {
-                                queue_sender.send(QueueMessages::Dequeue)?;
+                                let message = if let Some(song) = current_song {
+                                    queue_sender.send(QueueMessages::Dequeue)?;
 
-                                if let Some(t_handle) = t_handle {
-                                    t_handle.abort();
-                                }
+                                    if let Some(t_handle) = t_handle {
+                                        t_handle.abort();
+                                    }
 
-                                if mpv.playlist_next_force().is_ok() {
-                                    format!("Skipped: {}", song.title)
+                                    if mpv.playlist_next_force().is_ok() {
+                                        format!("Skipped: {}", song.title)
+                                    } else {
+                                        String::from("lmao")
+                                    }
                                 } else {
-                                    String::from("lmao")
-                                }
+                                    String::from("No song playing")
+                                };
+
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                            }
+                        }
+                        "queue" | "q" => {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(
+                                    "Check the queue at: https://f5rfm.bksalman.com",
+                                )))
+                                .await?;
+                        }
+                        "currentsong" | "song" => {
+                            let (send, recv) = oneshot::channel();
+
+                            queue_sender.send(QueueMessages::GetCurrentSong(send))?;
+
+                            let Ok(current_song) = recv.await else {
+                            return Err(eyre::eyre!("Could not get current song"));
+                        };
+
+                            let message = if let Some(song) = current_song {
+                                format!(
+                                    "current song: {} , requested by {} - {}",
+                                    song.title, song.user, song.url,
+                                )
                             } else {
                                 String::from("No song playing")
                             };
@@ -303,382 +315,353 @@ async fn read(
                                 .send(Message::Text(to_irc_message(&message)))
                                 .await?;
                         }
-                    }
-                    "queue" | "q" => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(
-                                "Check the queue at: https://f5rfm.bksalman.com",
-                            )))
-                            .await?;
-                    }
-                    "currentsong" | "song" => {
-                        let (send, recv) = oneshot::channel();
+                        "currentspotify" | "currentsp" => {
+                            let cmd = process::Command::new("./scripts/current_spotify_song.sh")
+                                .output()?;
+                            let output = String::from_utf8(cmd.stdout)?;
 
-                        queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                        let Ok(current_song) = recv.await else {
-                            return Err(eyre::eyre!("Could not get current song"));
-                        };
-
-                        let message = if let Some(song) = current_song {
-                            format!(
-                                "current song: {} , requested by {} - {}",
-                                song.title, song.user, song.url,
-                            )
-                        } else {
-                            String::from("No song playing")
-                        };
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&message)))
-                            .await?;
-                    }
-                    "currentspotify" | "currentsp" => {
-                        let cmd =
-                            process::Command::new("./scripts/current_spotify_song.sh").output()?;
-                        let output = String::from_utf8(cmd.stdout)?;
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&format!(
-                                "Current Spotify song: {}",
-                                output
-                            ))))
-                            .await?;
-                    }
-                    "volume" | "v" => {
-                        if args.is_empty() {
-                            let Ok(volume) = mpv.get_property::<i64>("volume") else {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(&format!(
+                                    "Current Spotify song: {}",
+                                    output
+                                ))))
+                                .await?;
+                        }
+                        "volume" | "v" => {
+                            if args.is_empty() {
+                                let Ok(volume) = mpv.get_property::<i64>("volume") else {
                                                 println!("volume error");
                                                 ws_sender.send(Message::Text(to_irc_message("No volume"))).await?;
                                                 return Ok(());
                                             };
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&format!(
-                                    "Volume: {}",
-                                    volume
-                                ))))
-                                .await?;
-                            continue;
-                        }
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&format!(
+                                        "Volume: {}",
+                                        volume
+                                    ))))
+                                    .await?;
+                                continue;
+                            }
 
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender.send(Message::Text(message)).await?;
-                            continue;
-                        }
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender.send(Message::Text(message)).await?;
+                                continue;
+                            }
 
-                        let Ok(volume) = args.parse::<i64>() else {
+                            let Ok(volume) = args.parse::<i64>() else {
                             let e = String::from("Provide number");
                             ws_sender.send(Message::Text(e)).await?;
                             continue;
                         };
 
-                        if let Err(e) = mpv.set_property("volume", volume) {
-                            println!("{e}");
-                        }
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&format!(
-                                "Volume set to {}",
-                                volume
-                            ))))
-                            .await?;
-                    }
-                    "play" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
-                                .await?;
-                            continue;
-                        }
-
-                        let (send, recv) = oneshot::channel();
-
-                        queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                        let Ok(current_song) = recv.await else {
-                            return Err(eyre::eyre!("Could not get current song"));
-                        };
-
-                        if let Some(song) = current_song {
-                            if let Err(e) = mpv.unpause() {
+                            if let Err(e) = mpv.set_property("volume", volume) {
                                 println!("{e}");
                             }
 
                             ws_sender
                                 .send(Message::Text(to_irc_message(&format!(
-                                    "Resumed {}",
-                                    song.title
+                                    "Volume set to {}",
+                                    volume
                                 ))))
                                 .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("Queue is empty")))
-                                .await?;
                         }
-                    }
-                    "playspotify" | "playsp" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
-                                .await?;
-                            continue;
-                        }
+                        "play" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
 
-                        if process::Command::new("./scripts/play_spotify.sh")
-                            .spawn()
-                            .is_ok()
-                        {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("Started playing spotify")))
-                                .await?;
-                        } else {
-                            println!("no script");
-                        }
-                    }
-                    "stop" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
-                                .await?;
-                            continue;
-                        }
+                            let (send, recv) = oneshot::channel();
 
-                        let (send, recv) = oneshot::channel();
+                            queue_sender.send(QueueMessages::GetCurrentSong(send))?;
 
-                        queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                        let Ok(current_song) = recv.await else {
+                            let Ok(current_song) = recv.await else {
                             return Err(eyre::eyre!("Could not get current song"));
                         };
 
-                        if let Some(song) = current_song {
-                            if let Err(e) = mpv.pause() {
+                            if let Some(song) = current_song {
+                                if let Err(e) = mpv.unpause() {
+                                    println!("{e}");
+                                }
+
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&format!(
+                                        "Resumed {}",
+                                        song.title
+                                    ))))
+                                    .await?;
+                            } else {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message("Queue is empty")))
+                                    .await?;
+                            }
+                        }
+                        "playspotify" | "playsp" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
+
+                            if process::Command::new("./scripts/play_spotify.sh")
+                                .spawn()
+                                .is_ok()
+                            {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message("Started playing spotify")))
+                                    .await?;
+                            } else {
+                                println!("no script");
+                            }
+                        }
+                        "stop" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
+
+                            let (send, recv) = oneshot::channel();
+
+                            queue_sender.send(QueueMessages::GetCurrentSong(send))?;
+
+                            let Ok(current_song) = recv.await else {
+                            return Err(eyre::eyre!("Could not get current song"));
+                        };
+
+                            if let Some(song) = current_song {
+                                if let Err(e) = mpv.pause() {
+                                    println!("{e}");
+                                    continue;
+                                }
+
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&format!(
+                                        "Stopped playing {}, !play to resume",
+                                        song.title
+                                    ))))
+                                    .await?;
+                            } else {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message("Queue is empty")))
+                                    .await?;
+                            }
+                        }
+                        "stopspotify" | "stopsp" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
+
+                            if let Err(e) =
+                                process::Command::new("./scripts/pause_spotify.sh").spawn()
+                            {
                                 println!("{e}");
                                 continue;
                             }
 
                             ws_sender
-                                .send(Message::Text(to_irc_message(&format!(
-                                    "Stopped playing {}, !play to resume",
-                                    song.title
-                                ))))
-                                .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(to_irc_message("Queue is empty")))
+                                .send(Message::Text(to_irc_message("Stopped playing spotify")))
                                 .await?;
                         }
-                    }
-                    "stopspotify" | "stopsp" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
-                                .await?;
-                            continue;
-                        }
+                        "قوانين" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
 
-                        if let Err(e) = process::Command::new("./scripts/pause_spotify.sh").spawn()
-                        {
-                            println!("{e}");
-                            continue;
+                            for rule in RULES.lines() {
+                                ws_sender.send(Message::Text(to_irc_message(rule))).await?;
+                            }
                         }
+                        "title" => {
+                            if args.is_empty() {
+                                let title = get_title(token_sender.clone()).await?;
 
-                        ws_sender
-                            .send(Message::Text(to_irc_message("Stopped playing spotify")))
-                            .await?;
-                    }
-                    "قوانين" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
-                                .await?;
-                            continue;
-                        }
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&format!(
+                                        "Current stream title: {}",
+                                        title
+                                    ))))
+                                    .await?;
 
-                        for rule in RULES.lines() {
-                            ws_sender.send(Message::Text(to_irc_message(rule))).await?;
-                        }
-                    }
-                    "title" => {
-                        if args.is_empty() {
-                            let title = get_title(token_sender.clone()).await?;
+                                continue;
+                            }
 
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
+
+                            set_title(args, token_sender.clone()).await?;
                             ws_sender
                                 .send(Message::Text(to_irc_message(&format!(
-                                    "Current stream title: {}",
-                                    title
+                                    "Set stream title to: {}",
+                                    args
                                 ))))
                                 .await?;
-
-                            continue;
                         }
-
-                        if let Some(message) = mods_only(&parsed_msg)? {
+                        "warranty" => {
                             ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
+                                .send(Message::Text(to_irc_message(WARRANTY)))
                                 .await?;
                             continue;
                         }
-
-                        set_title(args, token_sender.clone()).await?;
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&format!(
-                                "Set stream title to: {}",
-                                args
-                            ))))
-                            .await?;
-                    }
-                    "warranty" => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(WARRANTY)))
-                            .await?;
-                        continue;
-                    }
-                    "rustwarranty" | "!rwarranty" => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(RUST_WARRANTY)))
-                            .await?;
-                        continue;
-                    }
-                    "workingon" | "wo" => {
-                        fs::write(
-                            String::from("workingon.txt"),
-                            format!("Currently: {}", args),
-                        )?;
-
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&format!(
-                                "Updated current working on to \"{}\"",
-                                args
-                            ))))
-                            .await?;
-                    }
-                    "pixelperfect" | "pp" => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("image_res.rect")))
-                            .await?;
-                    }
-                    "discord" | "disc" => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
-                            .await?;
-                    }
-                    "nerd" => {
-                        if let Ok(reply) = parsed_msg.tags.get_reply() {
-                            let message = format!("Nerd \"{}\"", reply);
+                        "rustwarranty" | "!rwarranty" => {
                             ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
-                                .await?;
-                        } else {
-                            ws_sender
-                                .send(Message::Text(String::from(
-                                    "Reply to a message to use this command",
-                                )))
-                                .await?;
-                        }
-                    }
-                    "7tv" => {
-                        ws_sender
-                            .send(Message::Text(to_irc_message(&format!(
-                                "https://7tv.app/emotes?query={args}"
-                            ))))
-                            .await?;
-                    }
-                    "test" => {
-                        if let Some(message) = mods_only(&parsed_msg)? {
-                            ws_sender
-                                .send(Message::Text(to_irc_message(&message)))
+                                .send(Message::Text(to_irc_message(RUST_WARRANTY)))
                                 .await?;
                             continue;
                         }
+                        "workingon" | "wo" => {
+                            fs::write(
+                                String::from("workingon.txt"),
+                                format!("Currently: {}", args),
+                            )?;
 
-                        let alert = match args.to_lowercase().as_str() {
-                            "raid" => Alert {
-                                new: true,
-                                r#type: AlertEventType::Raid {
-                                    from: String::from("lmao"),
-                                    viewers: 9999,
-                                },
-                            },
-                            "follow" => Alert {
-                                new: true,
-                                r#type: AlertEventType::Follow {
-                                    follower: String::from("lmao"),
-                                },
-                            },
-                            "sub" => Alert {
-                                new: true,
-                                r#type: AlertEventType::Subscribe {
-                                    subscriber: String::from("lmao"),
-                                    tier: String::from("3"),
-                                },
-                            },
-                            "resub" => Alert {
-                                new: true,
-                                r#type: AlertEventType::ReSubscribe {
-                                    subscriber: String::from("lmao"),
-                                    tier: String::from("3"),
-                                    subscribed_for: 4,
-                                    streak: 2,
-                                },
-                            },
-                            "giftsub" => Alert {
-                                new: true,
-                                r#type: AlertEventType::GiftSub {
-                                    gifter: String::from("lmao"),
-                                    total: 9999,
-                                    tier: String::from("3"),
-                                },
-                            },
-                            _ => {
-                                println!("no args provided");
-                                Alert {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(&format!(
+                                    "Updated current working on to \"{}\"",
+                                    args
+                                ))))
+                                .await?;
+                        }
+                        "pixelperfect" | "pp" => {
+                            ws_sender
+                                .send(Message::Text(to_irc_message("image_res.rect")))
+                                .await?;
+                        }
+                        "discord" | "disc" => {
+                            ws_sender
+                                .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
+                                .await?;
+                        }
+                        "nerd" => {
+                            if let Ok(reply) = parsed_msg.tags.get_reply() {
+                                let message = format!("Nerd \"{}\"", reply);
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                            } else {
+                                ws_sender
+                                    .send(Message::Text(String::from(
+                                        "Reply to a message to use this command",
+                                    )))
+                                    .await?;
+                            }
+                        }
+                        "7tv" => {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(&format!(
+                                    "https://7tv.app/emotes?query={args}"
+                                ))))
+                                .await?;
+                        }
+                        "test" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
+
+                            let alert = match args.to_lowercase().as_str() {
+                                "raid" => Alert {
                                     new: true,
                                     r#type: AlertEventType::Raid {
                                         from: String::from("lmao"),
                                         viewers: 9999,
                                     },
+                                },
+                                "follow" => Alert {
+                                    new: true,
+                                    r#type: AlertEventType::Follow {
+                                        follower: String::from("lmao"),
+                                    },
+                                },
+                                "sub" => Alert {
+                                    new: true,
+                                    r#type: AlertEventType::Subscribe {
+                                        subscriber: String::from("lmao"),
+                                        tier: String::from("3"),
+                                    },
+                                },
+                                "resub" => Alert {
+                                    new: true,
+                                    r#type: AlertEventType::ReSubscribe {
+                                        subscriber: String::from("lmao"),
+                                        tier: String::from("3"),
+                                        subscribed_for: 4,
+                                        streak: 2,
+                                    },
+                                },
+                                "giftsub" => Alert {
+                                    new: true,
+                                    r#type: AlertEventType::GiftSub {
+                                        gifter: String::from("lmao"),
+                                        total: 9999,
+                                        tier: String::from("3"),
+                                    },
+                                },
+                                _ => {
+                                    println!("no args provided");
+                                    Alert {
+                                        new: true,
+                                        r#type: AlertEventType::Raid {
+                                            from: String::from("lmao"),
+                                            viewers: 9999,
+                                        },
+                                    }
+                                }
+                            };
+
+                            match alerts_sender.send(alert) {
+                                Ok(_) => {
+                                    ws_sender
+                                        .send(Message::Text(to_irc_message(&format!(
+                                            "Testing {} alert",
+                                            if args.is_empty() { "raid" } else { args }
+                                        ))))
+                                        .await?;
+                                }
+                                Err(e) => {
+                                    println!("frontend event failed:: {e:?}");
                                 }
                             }
-                        };
-
-                        match alerts_sender.send(alert) {
-                            Ok(_) => {
-                                ws_sender
-                                    .send(Message::Text(to_irc_message(&format!(
-                                        "Testing {} alert",
-                                        if args.is_empty() { "raid" } else { args }
-                                    ))))
-                                    .await?;
-                            }
-                            Err(e) => {
-                                println!("frontend event failed:: {e:?}");
-                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
-            Ok(Message::Text(msg)) => {
-                #[allow(clippy::if_same_then_else)]
-                if msg.contains("PING") {
-                    ws_sender
-                        .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
-                        .await?;
-                } else if msg.contains("RECONNECT") {
-                    // TODO: reconnect
-                } else {
-                    // println!("{msg}");
+                Ok(Message::Text(msg)) => {
+                    #[allow(clippy::if_same_then_else)]
+                    if msg.contains("PING") {
+                        ws_sender
+                            .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
+                            .await?;
+                    } else if msg.contains("RECONNECT") {
+                        // TODO: reconnect
+                        continue 'restart;
+                    } else {
+                        // println!("{msg}");
+                    }
                 }
-            }
-            Ok(_) => {}
-            Err(e) => {
-                return Err(eyre::eyre!("{e}"));
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(eyre::eyre!("{e}"));
+                }
             }
         }
     }
-
-    Ok(())
 }
 
 fn mods_only(parsed_msg: &TwitchIrcMessage) -> Result<Option<String>, color_eyre::Report> {
