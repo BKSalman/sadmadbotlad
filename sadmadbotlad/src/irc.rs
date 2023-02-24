@@ -212,8 +212,6 @@ async fn read(
                             let mut message = String::new();
 
                             if let Some(song) = current_song {
-                                queue_sender.send(QueueMessages::Dequeue)?;
-
                                 if mpv.playlist_next_force().is_ok() {
                                     message = format!("Skipped: {}", song.title);
                                 }
@@ -346,10 +344,17 @@ async fn read(
                             }
 
                             let Ok(volume) = args.parse::<i64>() else {
-                            let e = String::from("Provide number");
-                            ws_sender.send(Message::Text(e)).await?;
-                            continue;
-                        };
+                                let e = String::from("Provide number");
+                                ws_sender.send(Message::Text(e)).await?;
+                                continue;
+                            };
+
+                            if volume > 100 {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message("Max volume is 100")))
+                                    .await?;
+                                continue;
+                            }
 
                             if let Err(e) = mpv.set_property("volume", volume) {
                                 println!("{e}");
@@ -521,6 +526,13 @@ async fn read(
                             continue;
                         }
                         "workingon" | "wo" => {
+                            if let Some(message) = mods_only(&parsed_msg)? {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(&message)))
+                                    .await?;
+                                continue;
+                            }
+
                             fs::write(
                                 String::from("workingon.txt"),
                                 format!("Currently: {}", args),
@@ -608,6 +620,13 @@ async fn read(
                                         gifter: String::from("lmao"),
                                         total: 9999,
                                         tier: String::from("3"),
+                                    },
+                                },
+                                "asd" => Alert {
+                                    new: true,
+                                    r#type: AlertEventType::Raid {
+                                        from: String::from("asd"),
+                                        viewers: 9999,
                                     },
                                 },
                                 _ => {

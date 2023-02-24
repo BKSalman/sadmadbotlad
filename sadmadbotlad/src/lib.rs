@@ -8,7 +8,6 @@ use song_requests::Queue;
 use tokio::task::JoinHandle;
 use twitch::TwitchApiInfo;
 
-pub mod commands;
 pub mod db;
 pub mod discord;
 // pub mod event_handler;

@@ -239,8 +239,6 @@ pub fn play_song(
                 change: PropertyData::Flag(true),
                 ..
             }) => {
-                queue_sender.send(QueueMessages::Dequeue)?;
-
                 if let Some(song) = song_receiver.blocking_recv() {
                     println!("{song:#?}");
 
