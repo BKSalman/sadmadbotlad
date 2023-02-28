@@ -171,7 +171,7 @@ async fn read(
 
                             println!("{events:#?}");
                         }
-                        "sr" => {
+                        "sr" | "طلب" => {
                             if args.is_empty() {
                                 let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
                                 ws_sender.send(Message::Text(to_irc_message(&e))).await?;
@@ -193,7 +193,7 @@ async fn read(
                                 .send(Message::Text(to_irc_message(&message)))
                                 .await?;
                         }
-                        "skip" => {
+                        "skip" | "تخطي" => {
                             if let Some(message) = mods_only(&parsed_msg)? {
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&message)))
@@ -206,8 +206,8 @@ async fn read(
                             queue_sender.send(QueueMessages::GetCurrentSong(send))?;
 
                             let Ok(current_song) = recv.await else {
-                            return Err(eyre::eyre!("Could not get current song"));
-                        };
+                                return Err(eyre::eyre!("Could not get current song"));
+                            };
 
                             let mut message = String::new();
 
@@ -223,7 +223,7 @@ async fn read(
                                 .send(Message::Text(to_irc_message(&message)))
                                 .await?;
                         }
-                        "voteskip" => {
+                        "voteskip" | "تصويت-تخطي" => {
                             // TODO: figure out how to make every vote reset the timer (timeout??)
 
                             let votersc = voters.clone();
@@ -281,14 +281,15 @@ async fn read(
                                     .await?;
                             }
                         }
-                        "queue" | "q" => {
+                        "queue" | "q" | "السرا" => {
                             ws_sender
                                 .send(Message::Text(to_irc_message(
                                     "Check the queue at: https://f5rfm.bksalman.com",
                                 )))
                                 .await?;
                         }
-                        "currentsong" | "song" => {
+                        "currentsong" | "song" | "الحالية" | "الاغنية" | "الاغنيةالحالية" =>
+                        {
                             let (send, recv) = oneshot::channel();
 
                             queue_sender.send(QueueMessages::GetCurrentSong(send))?;
@@ -367,7 +368,7 @@ async fn read(
                                 ))))
                                 .await?;
                         }
-                        "play" => {
+                        "play" | "إبدأ" | "ابدأ" | "ابدا" | "بدء" => {
                             if let Some(message) = mods_only(&parsed_msg)? {
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&message)))
@@ -419,7 +420,7 @@ async fn read(
                                 println!("no script");
                             }
                         }
-                        "stop" => {
+                        "stop" | "قف" | "وقف" => {
                             if let Some(message) = mods_only(&parsed_msg)? {
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&message)))
@@ -484,7 +485,7 @@ async fn read(
                                 ws_sender.send(Message::Text(to_irc_message(rule))).await?;
                             }
                         }
-                        "title" => {
+                        "title" | "عنوان" => {
                             if args.is_empty() {
                                 let title = get_title(token_sender.clone()).await?;
 
@@ -513,13 +514,13 @@ async fn read(
                                 ))))
                                 .await?;
                         }
-                        "warranty" => {
+                        "warranty" | "تأمين" => {
                             ws_sender
                                 .send(Message::Text(to_irc_message(WARRANTY)))
                                 .await?;
                             continue;
                         }
-                        "rustwarranty" | "!rwarranty" => {
+                        "rustwarranty" | "!rwarranty" | "تأمين-صدأ" => {
                             ws_sender
                                 .send(Message::Text(to_irc_message(RUST_WARRANTY)))
                                 .await?;
