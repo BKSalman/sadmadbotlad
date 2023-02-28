@@ -15,6 +15,7 @@ pub enum QueueMessages {
     GetCurrentSong(oneshot::Sender<Option<SongRequest>>),
     Enqueue(SongRequest),
     Dequeue,
+    ClearCurrentSong,
     Sr((String, String), oneshot::Sender<String>),
 }
 
@@ -47,11 +48,6 @@ impl Queue {
     }
 
     pub fn dequeue(&mut self) {
-        if self.rear == 0 {
-            self.current_song = None;
-            return;
-        }
-
         self.current_song = self.queue[0].clone();
 
         for i in 0..self.rear - 1 {
@@ -64,6 +60,12 @@ impl Queue {
         }
 
         self.rear -= 1;
+    }
+
+    pub fn clear_current_song(&mut self) {
+        if self.rear == 0 {
+            self.current_song = None;
+        }
     }
 
     pub async fn sr(
@@ -146,6 +148,10 @@ impl SrQueue {
         self.queue.dequeue();
     }
 
+    pub fn clear_current_song(&mut self) {
+        self.queue.clear_current_song();
+    }
+
     pub async fn sr(
         &mut self,
         sender: &str,
@@ -166,6 +172,7 @@ impl SrQueue {
                 }
                 QueueMessages::Enqueue(song) => self.enqueue(&song)?,
                 QueueMessages::Dequeue => self.dequeue(),
+                QueueMessages::ClearCurrentSong => self.clear_current_song(),
                 QueueMessages::Sr((sender, song), one_shot_sender) => {
                     match self
                         .sr(
@@ -179,14 +186,19 @@ impl SrQueue {
                         Ok(message) => {
                             one_shot_sender.send(message).expect("send sr message");
                         }
-                        Err(e) => match e.to_string().as_str() {
-                            "Not A Valid Youtube URL" => {
-                                one_shot_sender
-                                    .send(String::from("Not a valid youtube URL"))
-                                    .expect("send invalid URL");
-                            }
-                            _ => panic!("{e}"),
-                        },
+                        Err(_) => {
+                            // match e.to_string().as_str() {
+                            //     "Not A Valid Youtube URL" => {
+                            //         one_shot_sender
+                            //             .send(String::from("Not a valid youtube URL"))
+                            //             .expect("send invalid URL");
+                            //     }
+                            //     _ => panic!("{e}"),
+                            // }
+                            one_shot_sender
+                                .send(String::from("Not a valid youtube URL"))
+                                .expect("send invalid URL");
+                        }
                     }
                 }
                 QueueMessages::GetCurrentSong(one_shot_sender) => {
@@ -239,6 +251,8 @@ pub fn play_song(
                 change: PropertyData::Flag(true),
                 ..
             }) => {
+                queue_sender.send(QueueMessages::ClearCurrentSong)?;
+
                 if let Some(song) = song_receiver.blocking_recv() {
                     println!("{song:#?}");
 
@@ -250,6 +264,7 @@ pub fn play_song(
             }
             Err(libmpv::Error::Raw(e)) => {
                 println!("Mpv Error:: {e}");
+                queue_sender.send(QueueMessages::ClearCurrentSong)?;
                 queue_sender.send(QueueMessages::Dequeue)?;
                 // event_sender.send(crate::event_handler::Event::MpvEvent(
                 //     crate::event_handler::MpvEvent::Error(e),
