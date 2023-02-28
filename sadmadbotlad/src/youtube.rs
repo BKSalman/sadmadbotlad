@@ -45,12 +45,11 @@ pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<Strin
 
     let res = res.json::<Value>().await?;
 
-    let video_title = res["items"][0]["snippet"]["title"]
-        .as_str()
-        .expect("yt video title")
-        .to_owned();
-
-    Ok(video_title)
+    if let Some(video_title) = res["items"][0]["snippet"]["title"].as_str() {
+        Ok(video_title.to_owned())
+    } else {
+        Err(eyre::eyre!("Failed to get video title"))
+    }
 }
 
 // TODO: move this to be a method of YoutubeApiInfo or something
