@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::ApiInfo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use reqwest::StatusCode;
 use serde_json::Value;
 
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
@@ -46,14 +45,14 @@ pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<Strin
 
     let res = res.json::<Value>().await?;
 
-    let video_title = res["items"][0]["snippet"]["title"]
-        .as_str()
-        .expect("yt video title")
-        .to_owned();
-
-    Ok(video_title)
+    if let Some(video_title) = res["items"][0]["snippet"]["title"].as_str() {
+        Ok(video_title.to_owned())
+    } else {
+        Err(eyre::eyre!("Failed to get video title"))
+    }
 }
 
+// TODO: move this to be a method of YoutubeApiInfo or something
 pub async fn video_info(
     video_query: &str,
     api_info: Arc<ApiInfo>,
@@ -72,11 +71,16 @@ pub async fn video_info(
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("video_info:: Unauthorized"));
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "{} :: message: {}",
+            res.status(),
+            res.text().await?
+        ));
     }
 
     let res = res.json::<Value>().await?;
+
     let video_title = res["items"][0]["snippet"]["title"]
         .as_str()
         .expect("yt video title");

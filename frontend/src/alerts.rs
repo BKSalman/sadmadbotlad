@@ -59,7 +59,11 @@ impl Component for Alerts {
                         self.alert_msg = Some(html! {{format!("{follower} followed 😎!")}});
                     }
                     AlertEventType::Raid { from, viewers } => {
-                        self.alert = Some(String::from("raid"));
+                        if from == "asd" {
+                            self.alert = Some(String::from("asd"));
+                        } else {
+                            self.alert = Some(String::from("raid"));
+                        }
                         self.alert_msg =
                             Some(html! {{format!("{from} raided with {viewers} viewers 🦀!")}});
                     }

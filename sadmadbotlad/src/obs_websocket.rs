@@ -2,16 +2,17 @@ use std::{sync::Arc, time::Duration};
 
 use futures_util::{pin_mut, StreamExt};
 use obws::{events::Event, Client};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 
 use crate::{
-    event_handler::{Event as EventHandler, IrcChat, IrcEvent},
-    twitch::{run_ads, AdError},
+    // event_handler::{Event as EventHandler, IrcChat, IrcEvent},
+    twitch::{run_ads, TwitchTokenMessages},
     ApiInfo,
 };
 
 pub async fn obs_websocket(
-    e_sender: UnboundedSender<EventHandler>,
+    // e_sender: UnboundedSender<EventHandler>,
+    token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
 ) -> eyre::Result<()> {
     let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await else {
@@ -36,18 +37,25 @@ pub async fn obs_websocket(
                 continue;
             }
 
-            match run_ads(&api_info).await {
+            match run_ads(token_sender.clone()).await {
                 Ok(retry) => {
                     println!("retry after {} seconds", retry);
-                    e_sender.send(EventHandler::IrcEvent(IrcEvent::Chat(IrcChat::Commercial)))?;
+                    println!("Starting a 90 seconds commercial break");
+
+                    // TODO: send this to IRC
+                    // ws_sender
+                    //     .send(Message::Text(to_irc_message(
+                    //         "Starting a 90 seconds commercial break",
+                    //     )))
+                    //     .await?;
                 }
-                Err(e) => match e {
-                    AdError::TooManyRequests => {
-                        println!("{}", e)
+                Err(e) => {
+                    if e.to_string().contains("too many requests") {
+                        println!("{e:?}");
+                    } else {
+                        panic!("{e}");
                     }
-                    AdError::UnAuthorized => panic!("{e}"),
-                    AdError::RequestErr(err) => panic!("{}", err),
-                },
+                }
             }
         }
     }
