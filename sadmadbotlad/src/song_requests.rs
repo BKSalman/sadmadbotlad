@@ -265,7 +265,6 @@ pub fn play_song(
             Err(libmpv::Error::Raw(e)) => {
                 println!("Mpv Error:: {e}");
                 queue_sender.send(QueueMessages::ClearCurrentSong)?;
-                queue_sender.send(QueueMessages::Dequeue)?;
                 // event_sender.send(crate::event_handler::Event::MpvEvent(
                 //     crate::event_handler::MpvEvent::Error(e),
                 // ))?;
