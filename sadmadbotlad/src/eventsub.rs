@@ -161,8 +161,13 @@ async fn read(
 
                                 let res = res.json::<TwitchApiResponse>().await?;
 
+                                let Some(data) = &res.data.iter().nth(0) else {
+                                    println!("twitch fucked the data up");
+                                    continue;
+                                };
+
                                 let timestamp =
-                                    chrono::DateTime::parse_from_rfc3339(&res.data[0].started_at)?
+                                    chrono::DateTime::parse_from_rfc3339(&data.started_at)?
                                         .timestamp();
 
                                 title = res.data[0].title.clone();
