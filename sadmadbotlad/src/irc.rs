@@ -8,7 +8,7 @@ use std::{
 use crate::{
     db::Store,
     flatten,
-    song_requests::{play_song, setup_mpv, QueueMessages, SongRequest},
+    song_requests::{play_song, QueueMessages, SongRequest},
     twitch::{get_title, set_title, TwitchTokenMessages},
     Alert, AlertEventType, APP,
 };
@@ -17,7 +17,8 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use libmpv::Mpv;
+// use libmpv::Mpv;
+use rodio::OutputStream;
 use tokio::{
     net::TcpStream,
     sync::{
@@ -48,13 +49,14 @@ pub async fn irc_connect(
 
     let (ws_sender, ws_receiver) = socket.split();
 
-    let mpv = Arc::new(setup_mpv());
+    let (_, stream_handle) = OutputStream::try_default().expect("audio stream");
 
-    let mpv_c = mpv.clone();
+    // let mpv = Arc::new(setup_mpv());
 
     let t_handle = {
+        // let mpv = mpv.clone();
         let queue_sender = queue_sender.clone();
-        std::thread::spawn(move || play_song(mpv_c, song_receiver, queue_sender))
+        std::thread::spawn(move || play_song(stream_handle, song_receiver, queue_sender))
     };
 
     tokio::try_join!(flatten(tokio::spawn(read(
@@ -62,7 +64,7 @@ pub async fn irc_connect(
         ws_sender,
         queue_sender,
         token_sender,
-        mpv,
+        // mpv,
         alerts_sender,
         store,
     ))),)
@@ -109,7 +111,7 @@ async fn read(
     mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
-    mpv: Arc<Mpv>,
+    // mpv: Arc<Mpv>,
     alerts_sender: broadcast::Sender<Alert>,
     store: Arc<Store>,
 ) -> eyre::Result<()> {
@@ -212,9 +214,9 @@ async fn read(
                             let mut message = String::new();
 
                             if let Some(song) = current_song {
-                                if mpv.playlist_next_force().is_ok() {
-                                    message = format!("Skipped: {}", song.title);
-                                }
+                                // if mpv.playlist_next_force().is_ok() {
+                                //     message = format!("Skipped: {}", song.title);
+                                // }
                             } else {
                                 message = String::from("No song playing");
                             }
@@ -267,11 +269,13 @@ async fn read(
                                         t_handle.abort();
                                     }
 
-                                    if mpv.playlist_next_force().is_ok() {
-                                        format!("Skipped: {}", song.title)
-                                    } else {
-                                        String::from("lmao")
-                                    }
+                                    // if mpv.playlist_next_force().is_ok() {
+                                    //     format!("Skipped: {}", song.title)
+                                    // } else {
+                                    //     String::from("lmao")
+                                    // }
+
+                                    String::new()
                                 } else {
                                     String::from("No song playing")
                                 };
@@ -325,15 +329,15 @@ async fn read(
                         }
                         "volume" | "v" => {
                             if args.is_empty() {
-                                let Ok(volume) = mpv.get_property::<i64>("volume") else {
-                                                println!("volume error");
-                                                ws_sender.send(Message::Text(to_irc_message("No volume"))).await?;
-                                                return Ok(());
-                                            };
+                                // let Ok(volume) = mpv.get_property::<i64>("volume") else {
+                                //                 println!("volume error");
+                                //                 ws_sender.send(Message::Text(to_irc_message("No volume"))).await?;
+                                //                 return Ok(());
+                                //             };
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&format!(
                                         "Volume: {}",
-                                        volume
+                                        "something" // volume
                                     ))))
                                     .await?;
                                 continue;
@@ -357,9 +361,9 @@ async fn read(
                                 continue;
                             }
 
-                            if let Err(e) = mpv.set_property("volume", volume) {
-                                println!("{e}");
-                            }
+                            // if let Err(e) = mpv.set_property("volume", volume) {
+                            //     println!("{e}");
+                            // }
 
                             ws_sender
                                 .send(Message::Text(to_irc_message(&format!(
@@ -385,9 +389,9 @@ async fn read(
                         };
 
                             if let Some(song) = current_song {
-                                if let Err(e) = mpv.unpause() {
-                                    println!("{e}");
-                                }
+                                // if let Err(e) = mpv.unpause() {
+                                //     println!("{e}");
+                                // }
 
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&format!(
@@ -437,10 +441,10 @@ async fn read(
                         };
 
                             if let Some(song) = current_song {
-                                if let Err(e) = mpv.pause() {
-                                    println!("{e}");
-                                    continue;
-                                }
+                                // if let Err(e) = mpv.pause() {
+                                //     println!("{e}");
+                                //     continue;
+                                // }
 
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&format!(

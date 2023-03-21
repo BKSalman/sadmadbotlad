@@ -18,8 +18,8 @@ serde_json = "1.0.87"
 chrono = "0.4.23"
 # libmpv = 2.0.1
 # fork from `libmpv` that supports mpv v0.35.0
-libmpv-sirno = "2.0.2-fork.1"
-libmpv-sys = "3.0.1"
+# libmpv-sirno = "2.0.2-fork.1"
+# libmpv-sys = "3.0.1"
 percent-encoding = "2.2.0"
 regex = "1.7.0"
 tokio-retry = "0.3.0"
@@ -32,3 +32,6 @@ clap = { version = "4.0.32", features = ["cargo", "derive"] }
 lazy_static = "1.4.0"
 async-trait = "0.1.62"
 urlencoding = "2.1.2"
+rodio = "0.17.1"
+tempfile = "3.4.0"
+minimp3 = "0.5.1"

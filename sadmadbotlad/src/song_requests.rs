@@ -1,7 +1,11 @@
+use std::io::{BufReader, Read, Seek};
+use std::process::{self, Stdio};
 use std::sync::Arc;
+use std::time::Duration;
 
-use libmpv::events::{Event, PropertyData};
-use libmpv::{FileState, Mpv};
+// use libmpv::events::{Event, PropertyData};
+// use libmpv::{FileState, Mpv};
+use rodio::{Decoder, OutputStreamHandle, Source};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use tokio::sync::oneshot;
@@ -212,64 +216,174 @@ impl SrQueue {
     }
 }
 
-pub fn setup_mpv() -> Mpv {
-    let Ok(mpv) = Mpv::new() else {
-        panic!("mpv crashed")
-    };
+// pub fn setup_mpv() -> Mpv {
+//     let Ok(mpv) = Mpv::new() else {
+//         panic!("mpv crashed")
+//     };
 
-    mpv.set_property("volume", 20).expect("mpv volume");
+//     mpv.set_property("volume", 20).expect("mpv volume");
 
-    mpv.set_property("video", "no").expect("mpv no video");
+//     mpv.set_property("video", "no").expect("mpv no video");
 
-    mpv
-}
+//     mpv
+// }
 
 pub fn play_song(
-    mpv: Arc<Mpv>,
+    stream_handle: OutputStreamHandle,
+    // mpv: Arc<Mpv>,
     mut song_receiver: Receiver<SongRequest>,
     queue_sender: UnboundedSender<QueueMessages>,
     // event_sender: UnboundedSender<crate::event_handler::Event>,
 ) -> Result<(), eyre::Report> {
-    let mut event_ctx = mpv.create_event_context();
-
-    event_ctx
-        .disable_deprecated_events()
-        .expect("deprecated events");
-
-    event_ctx
-        .observe_property("idle-active", libmpv::Format::Flag, 0)
-        .expect("observe property");
-
     loop {
-        let ev = event_ctx
-            .wait_event(600.)
-            .unwrap_or(Err(libmpv::Error::Null));
+        queue_sender.send(QueueMessages::ClearCurrentSong)?;
 
-        match ev {
-            Ok(Event::PropertyChange {
-                name: "idle-active",
-                change: PropertyData::Flag(true),
-                ..
-            }) => {
-                queue_sender.send(QueueMessages::ClearCurrentSong)?;
+        if let Some(song) = song_receiver.blocking_recv() {
+            println!("{song:#?}");
 
-                if let Some(song) = song_receiver.blocking_recv() {
-                    println!("{song:#?}");
+            let command = process::Command::new("yt-dlp")
+                .args(["-x", "--audio-format", "mp3", "-o", "-", &song.url])
+                .stdout(Stdio::piped())
+                .spawn()?;
 
-                    mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
-                        .expect("play song");
+            let source = decoder::Mp3Decoder::new(command.stdout.unwrap())?;
 
-                    queue_sender.send(QueueMessages::Dequeue)?;
+            let (sink, queue_rx) = rodio::Sink::new_idle();
+
+            sink.append(source);
+
+            stream_handle.play_raw(queue_rx)?;
+
+            queue_sender.send(QueueMessages::Dequeue)?;
+        }
+    }
+
+    // stream_handle.play_once
+    // let mut event_ctx = mpv.create_event_context();
+
+    // event_ctx
+    //     .disable_deprecated_events()
+    //     .expect("deprecated events");
+
+    // event_ctx
+    //     .observe_property("idle-active", libmpv::Format::Flag, 0)
+    //     .expect("observe property");
+
+    // loop {
+    //     let ev = event_ctx
+    //         .wait_event(600.)
+    //         .unwrap_or(Err(libmpv::Error::Null));
+
+    //     match ev {
+    //         Ok(Event::PropertyChange {
+    //             name: "idle-active",
+    //             change: PropertyData::Flag(true),
+    //             ..
+    //         }) => {
+    //             queue_sender.send(QueueMessages::ClearCurrentSong)?;
+
+    //             if let Some(song) = song_receiver.blocking_recv() {
+    //                 println!("{song:#?}");
+
+    //                 mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
+    //                     .expect("play song");
+
+    //                 queue_sender.send(QueueMessages::Dequeue)?;
+    //             }
+    //         }
+    //         Err(libmpv::Error::Raw(e)) => {
+    //             println!("Mpv Error:: {e}");
+    //             queue_sender.send(QueueMessages::ClearCurrentSong)?;
+    //             // event_sender.send(crate::event_handler::Event::MpvEvent(
+    //             //     crate::event_handler::MpvEvent::Error(e),
+    //             // ))?;
+    //         }
+    //         _ => {}
+    //     }
+    // }
+}
+
+mod decoder {
+    use std::io::Read;
+    use std::time::Duration;
+
+    use rodio::Source;
+
+    use minimp3::{Decoder, Frame};
+
+    pub struct Mp3Decoder<R>
+    where
+        R: Read,
+    {
+        decoder: Decoder<R>,
+        current_frame: Frame,
+        current_frame_offset: usize,
+    }
+
+    impl<R> Mp3Decoder<R>
+    where
+        R: Read,
+    {
+        pub fn new(data: R) -> eyre::Result<Self> {
+            let mut decoder = Decoder::new(data);
+            let current_frame = decoder.next_frame().unwrap();
+
+            Ok(Mp3Decoder {
+                decoder,
+                current_frame,
+                current_frame_offset: 0,
+            })
+        }
+        pub fn into_inner(self) -> R {
+            self.decoder.into_inner()
+        }
+    }
+
+    impl<R> Source for Mp3Decoder<R>
+    where
+        R: Read,
+    {
+        #[inline]
+        fn current_frame_len(&self) -> Option<usize> {
+            Some(self.current_frame.data.len())
+        }
+
+        #[inline]
+        fn channels(&self) -> u16 {
+            self.current_frame.channels as _
+        }
+
+        #[inline]
+        fn sample_rate(&self) -> u32 {
+            self.current_frame.sample_rate as _
+        }
+
+        #[inline]
+        fn total_duration(&self) -> Option<Duration> {
+            None
+        }
+    }
+
+    impl<R> Iterator for Mp3Decoder<R>
+    where
+        R: Read,
+    {
+        type Item = i16;
+
+        #[inline]
+        fn next(&mut self) -> Option<i16> {
+            if self.current_frame_offset == self.current_frame.data.len() {
+                match self.decoder.next_frame() {
+                    Ok(frame) => self.current_frame = frame,
+                    _ => return None,
                 }
+                self.current_frame_offset = 0;
             }
-            Err(libmpv::Error::Raw(e)) => {
-                println!("Mpv Error:: {e}");
-                queue_sender.send(QueueMessages::ClearCurrentSong)?;
-                // event_sender.send(crate::event_handler::Event::MpvEvent(
-                //     crate::event_handler::MpvEvent::Error(e),
-                // ))?;
-            }
-            _ => {}
+
+            let v = self.current_frame.data[self.current_frame_offset];
+            self.current_frame_offset += 1;
+
+            Some(v)
         }
     }
 }
