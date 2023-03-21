@@ -49,28 +49,29 @@ pub async fn irc_connect(
 
     let (ws_sender, ws_receiver) = socket.split();
 
-    let (_, stream_handle) = OutputStream::try_default().expect("audio stream");
-
     // let mpv = Arc::new(setup_mpv());
 
-    let t_handle = {
-        // let mpv = mpv.clone();
-        let queue_sender = queue_sender.clone();
-        std::thread::spawn(move || play_song(stream_handle, song_receiver, queue_sender))
-    };
+    // let t_handle = {
+    //     // let mpv = mpv.clone();
+    //     let queue_sender = queue_sender.clone();
+    //     std::thread::spawn(move || play_song(stream_handle, song_receiver, queue_sender))
+    // };
 
-    tokio::try_join!(flatten(tokio::spawn(read(
-        ws_receiver,
-        ws_sender,
-        queue_sender,
-        token_sender,
-        // mpv,
-        alerts_sender,
-        store,
-    ))),)
+    tokio::try_join!(
+        flatten(tokio::spawn(read(
+            ws_receiver,
+            ws_sender,
+            queue_sender.clone(),
+            token_sender,
+            // mpv,
+            alerts_sender,
+            store,
+        ))),
+        flatten(tokio::spawn(play_song(song_receiver, queue_sender)))
+    )
     .wrap_err_with(|| "irc")?;
 
-    t_handle.join().expect("play_song thread")?;
+    // t_handle.join().expect("play_song thread")?;
 
     Ok(())
 }

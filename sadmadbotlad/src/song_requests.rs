@@ -1,11 +1,12 @@
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Cursor, Read, Seek};
 use std::process::{self, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
 // use libmpv::events::{Event, PropertyData};
 // use libmpv::{FileState, Mpv};
-use rodio::{Decoder, OutputStreamHandle, Source};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Source};
+use rusty_ytdl::{Video, VideoOptions, VideoQuality, VideoSearchOptions};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use tokio::sync::oneshot;
@@ -228,8 +229,7 @@ impl SrQueue {
 //     mpv
 // }
 
-pub fn play_song(
-    stream_handle: OutputStreamHandle,
+pub async fn play_song(
     // mpv: Arc<Mpv>,
     mut song_receiver: Receiver<SongRequest>,
     queue_sender: UnboundedSender<QueueMessages>,
@@ -238,15 +238,31 @@ pub fn play_song(
     loop {
         queue_sender.send(QueueMessages::ClearCurrentSong)?;
 
-        if let Some(song) = song_receiver.blocking_recv() {
+        if let Some(song) = song_receiver.recv().await {
             println!("{song:#?}");
 
-            let command = process::Command::new("yt-dlp")
-                .args(["-x", "--audio-format", "mp3", "-o", "-", &song.url])
-                .stdout(Stdio::piped())
-                .spawn()?;
+            // let command = process::Command::new("yt-dlp")
+            //     .args(["-x", "--audio-format", "mp3", "-o", "-", &song.url])
+            //     .stdout(Stdio::piped())
+            //     .spawn()?;
+            let (_, stream_handle) = OutputStream::try_default().expect("audio stream");
 
-            let source = decoder::Mp3Decoder::new(command.stdout.unwrap())?;
+            let video = Video::new_with_options(
+                "https://www.youtube.com/watch?v=Z0mrOFZuNJo",
+                VideoOptions {
+                    quality: VideoQuality::LowestAudio,
+                    filter: VideoSearchOptions::Audio,
+                    ..Default::default()
+                },
+            )?;
+
+            let video_buffer = video.download().await?;
+
+            println!("lmfao: {:#?}", video_buffer);
+
+            let cursor = Cursor::new(video_buffer);
+
+            let source = decoder::Mp3Decoder::new(cursor)?;
 
             let (sink, queue_rx) = rodio::Sink::new_idle();
 

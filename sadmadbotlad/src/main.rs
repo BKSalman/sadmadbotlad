@@ -58,11 +58,11 @@ async fn run() -> Result<(), eyre::Report> {
             store.clone(),
         ))),
         flatten(tokio::spawn(ws_server(alerts_sender, store))),
-        flatten(tokio::spawn(obs_websocket(
-            // e_sender,
-            token_sender,
-            api_info
-        )))
+        // flatten(tokio::spawn(obs_websocket(
+        //     // e_sender,
+        //     token_sender,
+        //     api_info
+        // )))
     )
     .wrap_err_with(|| "Run")?;
 
