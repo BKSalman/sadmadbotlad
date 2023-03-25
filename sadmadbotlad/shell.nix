@@ -1,17 +1,12 @@
-let
-  system = "x64_86-linux";
-  unstable = import (fetchTarball https://github.com/nixos/nixpkgs/archive/nixpkgs-unstable.tar.gz) { };
-  # masterpkgs = import builtins.fetchTarball https://github.com/nixos/nixpkgs/master.tar.gz {};
-in
 { pkgs ? import <nixpkgs> { allowUnfree = true; }}: 
-   pkgs.mkShell rec {
+   pkgs.mkShell {
     buildInputs = with pkgs; [
       # unstable.mpv-unwrapped.dev
       # clang
       # llvmPackages.libclang
       # llvmPackages.libcxxClang
       # llvmPackages.bintools
-      yt-dlp
+      # yt-dlp
       alsa-lib
       rocksdb
       mpv

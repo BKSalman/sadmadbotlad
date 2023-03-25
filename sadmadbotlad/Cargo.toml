@@ -35,4 +35,4 @@ urlencoding = "2.1.2"
 rodio = "0.17.1"
 tempfile = "3.4.0"
 minimp3 = "0.5.1"
-rusty_ytdl = { path = "../../rusty_ytdl", features = ["tokio"] }
+rusty_ytdl = { version = "0.4.1", features = ["tokio"] }

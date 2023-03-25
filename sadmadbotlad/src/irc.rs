@@ -67,7 +67,7 @@ pub async fn irc_connect(
             alerts_sender,
             store,
         ))),
-        // flatten(tokio::spawn(play_song(song_receiver, queue_sender)))
+        flatten(tokio::spawn(play_song(song_receiver, queue_sender)))
     )
     .wrap_err_with(|| "irc")?;
 
@@ -175,26 +175,25 @@ async fn read(
                             println!("{events:#?}");
                         }
                         "sr" | "طلب" => {
-                            // FIXME
-                            // if args.is_empty() {
-                            //     let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
-                            //     ws_sender.send(Message::Text(to_irc_message(&e))).await?;
-                            //     continue;
-                            // }
+                            if args.is_empty() {
+                                let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
+                                ws_sender.send(Message::Text(to_irc_message(&e))).await?;
+                                continue;
+                            }
 
-                            // let (send, recv) = oneshot::channel();
+                            let (send, recv) = oneshot::channel();
 
-                            // queue_sender.send(QueueMessages::Sr(
-                            //     (parsed_msg.sender, args.to_string()),
-                            //     send,
-                            // ))?;
+                            queue_sender.send(QueueMessages::Sr(
+                                (parsed_msg.sender, args.to_string()),
+                                send,
+                            ))?;
 
-                            // let Ok(message) = recv.await else {
-                            //     return Err(eyre::eyre!("Could not request song"));
-                            // };
+                            let Ok(message) = recv.await else {
+                                return Err(eyre::eyre!("Could not request song"));
+                            };
 
                             ws_sender
-                                .send(Message::Text(to_irc_message("TrollDespair")))
+                                .send(Message::Text(to_irc_message(&message)))
                                 .await?;
                         }
                         "skip" | "تخطي" => {
