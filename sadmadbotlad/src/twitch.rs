@@ -87,8 +87,12 @@ pub async fn set_title(
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("set_title:: Unauthorized"));
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "set title:: {}::{}",
+            res.status(),
+            res.text().await?
+        ));
     }
 
     Ok(())
@@ -114,8 +118,12 @@ pub async fn get_title(
         .send()
         .await?;
 
-    if res.status() == StatusCode::UNAUTHORIZED {
-        return Err(eyre::eyre!("get_title:: Unauthorized"));
+    if !res.status().is_success() {
+        return Err(eyre::eyre!(
+            "get title:: {}::{}",
+            res.status(),
+            res.text().await?
+        ));
     }
 
     let res = res.json::<Value>().await?;
@@ -378,8 +386,12 @@ impl TwitchToken {
             .send()
             .await?;
 
-        if res.status() == StatusCode::UNAUTHORIZED {
-            return Err(eyre::eyre!("Unauthorized:: could not refresh access token"));
+        if !res.status().is_success() {
+            return Err(eyre::eyre!(
+                "refresh access token:: {} :: message: {}",
+                res.status(),
+                res.text().await?
+            ));
         }
 
         let res = res.json::<Value>().await?;
