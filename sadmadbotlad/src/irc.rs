@@ -114,7 +114,6 @@ async fn read(
     store: Arc<Store>,
 ) -> eyre::Result<()> {
     let voters = Arc::new(RwLock::new(HashSet::new()));
-
     irc_login(&mut ws_sender, token_sender.clone()).await?;
 
     'restart: loop {
@@ -312,7 +311,8 @@ async fn read(
                                 .await?;
                         }
                         "currentspotify" | "currentsp" => {
-                            let cmd = process::Command::new("./scripts/current_spotify_song.sh")
+                            let cmd = process::Command::new("playerctl")
+                                .args(["metadata", "--format", "{{title}} - {{artist}}"])
                                 .output()?;
                             let output = String::from_utf8(cmd.stdout)?;
 
@@ -409,7 +409,8 @@ async fn read(
                                 continue;
                             }
 
-                            if process::Command::new("./scripts/play_spotify.sh")
+                            if process::Command::new("playerctl")
+                                .arg("play")
                                 .spawn()
                                 .is_ok()
                             {
@@ -462,8 +463,7 @@ async fn read(
                                 continue;
                             }
 
-                            if let Err(e) =
-                                process::Command::new("./scripts/pause_spotify.sh").spawn()
+                            if let Err(e) = process::Command::new("playerctl").arg("pause").spawn()
                             {
                                 println!("{e}");
                                 continue;
