@@ -18,6 +18,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use libmpv::Mpv;
+use rand::seq::SliceRandom;
 use tokio::{
     net::TcpStream,
     sync::{
@@ -312,7 +313,12 @@ async fn read(
                         }
                         "currentspotify" | "currentsp" => {
                             let cmd = process::Command::new("playerctl")
-                                .args(["metadata", "--format", "{{title}} - {{artist}}"])
+                                .args([
+                                    "--player=spotify",
+                                    "metadata",
+                                    "--format",
+                                    "{{title}} - {{artist}}",
+                                ])
                                 .output()?;
                             let output = String::from_utf8(cmd.stdout)?;
 
@@ -410,7 +416,7 @@ async fn read(
                             }
 
                             if process::Command::new("playerctl")
-                                .arg("play")
+                                .args(["--player=spotify", "play"])
                                 .spawn()
                                 .is_ok()
                             {
@@ -463,7 +469,9 @@ async fn read(
                                 continue;
                             }
 
-                            if let Err(e) = process::Command::new("playerctl").arg("pause").spawn()
+                            if let Err(e) = process::Command::new("playerctl")
+                                .args(["--player=spotify", "pause"])
+                                .spawn()
                             {
                                 println!("{e}");
                                 continue;
@@ -562,18 +570,44 @@ async fn read(
                                 ws_sender
                                     .send(Message::Text(to_irc_message(&message)))
                                     .await?;
-                            } else {
-                                ws_sender
-                                    .send(Message::Text(String::from(
-                                        "Reply to a message to use this command",
-                                    )))
-                                    .await?;
+                                continue;
                             }
+
+                            ws_sender
+                                .send(Message::Text(String::from(
+                                    "Reply to a message to use this command",
+                                )))
+                                .await?;
                         }
                         "7tv" => {
                             ws_sender
                                 .send(Message::Text(to_irc_message(&format!(
                                     "https://7tv.app/emotes?query={args}"
+                                ))))
+                                .await?;
+                        }
+                        "roll" => {
+                            if args.trim().is_empty() {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message(
+                                        "Usage: !roll <choice one> | <choice two> | <choice three>",
+                                    )))
+                                    .await?;
+                                continue;
+                            }
+                            let options: Vec<&str> = args.split('|').collect();
+
+                            let Some(chosen) = options.choose(&mut rand::thread_rng()) else {
+                                ws_sender
+                                    .send(Message::Text(to_irc_message("No choices were provided")))
+                                    .await?;
+                                continue;
+                            };
+
+                            ws_sender
+                                .send(Message::Text(to_irc_message(&format!(
+                                    r#""{}" Won!"#,
+                                    chosen.trim()
                                 ))))
                                 .await?;
                         }
