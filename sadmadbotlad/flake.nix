@@ -23,6 +23,7 @@
             ];
 
             buildInputs = with pkgs; [
+                dbus
                 mpv
                 clang
                 llvmPackages.libclang
