@@ -586,6 +586,13 @@ async fn read(
                                 ))))
                                 .await?;
                         }
+                        "hard" => {
+                            ws_sender
+                                .send(Message::Text(to_irc_message(
+                                    "There are 2 hard problems in computer science: cache invalidation, naming things, and off-by-1 errors."
+                                )))
+                                .await?;
+                        }
                         "roll" => {
                             if args.trim().is_empty() {
                                 ws_sender
