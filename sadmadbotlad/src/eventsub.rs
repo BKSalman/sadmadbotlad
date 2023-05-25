@@ -30,7 +30,7 @@ async fn read(
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
-    let mut connection_url = String::from("wss://eventsub-beta.wss.twitch.tv/ws");
+    let mut connection_url = String::from("wss://eventsub.wss.twitch.tv/ws");
     let mut original_connection = true;
 
     'restart: loop {

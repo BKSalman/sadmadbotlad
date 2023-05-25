@@ -1,16 +1,18 @@
-use std::{convert::TryInto, fs, io::Read, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, convert::TryInto, fs, io::Read, sync::Arc};
 
 use clap::{command, Parser};
 use eyre::WrapErr;
+use hebi::ModuleLoader;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use song_requests::Queue;
 use tokio::task::JoinHandle;
+use tokio_tungstenite::tungstenite::Message;
 use twitch::TwitchApiInfo;
 
+pub mod commands;
 pub mod db;
 pub mod discord;
-// pub mod event_handler;
 pub mod eventsub;
 pub mod irc;
 pub mod obs_websocket;
@@ -186,6 +188,65 @@ pub struct Alert {
     r#type: AlertEventType,
 }
 
+impl Alert {
+    pub fn raid_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Raid {
+                from: String::from("lmao"),
+                viewers: 9999,
+            },
+        }
+    }
+    pub fn follow_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Follow {
+                follower: String::from("lmao"),
+            },
+        }
+    }
+    pub fn sub_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Subscribe {
+                subscriber: String::from("lmao"),
+                tier: String::from("3"),
+            },
+        }
+    }
+    pub fn resub_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::ReSubscribe {
+                subscriber: String::from("lmao"),
+                tier: String::from("3"),
+                subscribed_for: 4,
+                streak: 2,
+            },
+        }
+    }
+    pub fn giftsub_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::GiftSub {
+                gifter: String::from("lmao"),
+                total: 9999,
+                tier: String::from("3"),
+            },
+        }
+    }
+    pub fn asd_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Raid {
+                from: String::from("asd"),
+                viewers: 9999,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum SrEvent {
     QueueRequest,
@@ -338,5 +399,58 @@ impl<S> TakeVal for S {
     {
         let value: Option<T> = TakeImpl::take_impl(self, key)?;
         value.ok_or_else(|| eyre::eyre!("Property {} not found ", key))
+    }
+}
+
+pub struct CommandsLoader {
+    commands: HashMap<String, String>,
+}
+
+impl CommandsLoader {
+    pub fn new() -> Self {
+        Self {
+            commands: HashMap::new(),
+        }
+    }
+
+    pub fn load_commands(&mut self, path: &str) -> eyre::Result<()> {
+        for file in fs::read_dir(path)? {
+            let file = file?;
+
+            let file_name = file
+                .file_name()
+                .to_str()
+                .ok_or_else(|| eyre::eyre!("failed to get file name"))?
+                .to_string();
+
+            let Some((command_name, extension)) = file_name.rsplit_once(".") else {
+                return Err(eyre::eyre!("invalid file"));
+            };
+
+            println!(
+                "file name: {file_name} -- file type: {:?}",
+                file.file_type()
+            );
+
+            println!("command name: {command_name} -- extension: {extension}");
+
+            self.commands.insert(
+                command_name.to_string(),
+                fs::read_to_string(format!("{}/{}", path, file_name))?,
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl ModuleLoader for CommandsLoader {
+    fn load(&self, path: &str) -> hebi::Result<hebi::Cow<'static, str>> {
+        Ok(hebi::Cow::owned(
+            self.commands
+                .get(path)
+                .ok_or_else(|| hebi::error!("failed to load module {path}"))?
+                .clone(),
+        ))
     }
 }
