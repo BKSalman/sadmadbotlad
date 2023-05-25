@@ -17,6 +17,34 @@ use tokio_tungstenite::{accept_async, tungstenite};
 
 use crate::ApiInfo;
 
+#[derive(thiserror::Error, Debug)]
+pub enum TwitchError {
+    #[error("could not get twitch token")]
+    TokenError,
+
+    #[error("{request_name} {status}::{message}")]
+    TwitchApiError {
+        request_name: String,
+        status: StatusCode,
+        message: String,
+    },
+
+    #[error("{0}")]
+    ReqwestError(#[from] reqwest::Error),
+
+    #[error("{0}")]
+    TomlDeError(#[from] toml::de::Error),
+
+    #[error("{0}")]
+    TomlSerError(#[from] toml::ser::Error),
+
+    #[error("{0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("{0}")]
+    SendError(#[from] tokio::sync::mpsc::error::SendError<TwitchTokenMessages>),
+}
+
 #[allow(unused)]
 #[derive(Deserialize)]
 pub struct TwitchApiResponse {
@@ -64,7 +92,7 @@ pub struct AdData {
 pub async fn set_title(
     new_title: &str,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
-) -> Result<(), eyre::Report> {
+) -> Result<(), TwitchError> {
     // request twitch patch change title
 
     let http_client = Client::new();
@@ -74,7 +102,7 @@ pub async fn set_title(
     token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
 
     let Ok(api_info) = one_shot_receiver.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(TwitchError::TokenError);
     };
 
     let res = http_client
@@ -88,11 +116,11 @@ pub async fn set_title(
         .await?;
 
     if !res.status().is_success() {
-        return Err(eyre::eyre!(
-            "set title:: {}::{}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(TwitchError::TwitchApiError {
+            request_name: String::from("set_title"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        });
     }
 
     Ok(())
@@ -100,7 +128,7 @@ pub async fn set_title(
 
 pub async fn get_title(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
-) -> Result<String, eyre::Report> {
+) -> Result<String, TwitchError> {
     let http_client = Client::new();
 
     let (one_shot_sender, one_shot_receiver) = oneshot::channel();
@@ -108,7 +136,7 @@ pub async fn get_title(
     token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
 
     let Ok(api_info) = one_shot_receiver.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(TwitchError::TokenError);
     };
 
     let res = http_client
@@ -119,11 +147,11 @@ pub async fn get_title(
         .await?;
 
     if !res.status().is_success() {
-        return Err(eyre::eyre!(
-            "get title:: {}::{}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(TwitchError::TwitchApiError {
+            request_name: String::from("get_title"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        });
     }
 
     let res = res.json::<Value>().await?;
@@ -328,7 +356,7 @@ impl TwitchToken {
         }
     }
 
-    pub async fn handle_messages(mut self) -> eyre::Result<()> {
+    pub async fn handle_messages(mut self) -> Result<(), TwitchError> {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 TwitchTokenMessages::GetToken(response) => {
@@ -343,7 +371,7 @@ impl TwitchToken {
         Ok(())
     }
 
-    pub async fn update_token(&mut self) -> eyre::Result<()> {
+    pub async fn update_token(&mut self) -> Result<(), TwitchError> {
         let now =
             chrono::NaiveDateTime::from_timestamp_millis(Local::now().timestamp_millis()).unwrap();
 
@@ -371,7 +399,7 @@ impl TwitchToken {
         Ok(())
     }
 
-    pub async fn refresh_access_token(&mut self) -> Result<(), eyre::Report> {
+    pub async fn refresh_access_token(&mut self) -> Result<(), TwitchError> {
         println!("Refreshing token");
         let http_client = Client::new();
 
@@ -387,19 +415,18 @@ impl TwitchToken {
             .await?;
 
         if !res.status().is_success() {
-            return Err(eyre::eyre!(
-                "refresh access token:: {} :: message: {}",
-                res.status(),
-                res.text().await?
-            ));
+            return Err(TwitchError::TwitchApiError {
+                request_name: String::from("refresh_access_token"),
+                status: res.status(),
+                message: res.text().await.expect("response text"),
+            });
         }
 
         let res = res.json::<Value>().await?;
 
-        let config_str = fs::read_to_string("config.toml").wrap_err_with(|| "no config file")?;
+        let config_str = fs::read_to_string("config.toml")?;
 
-        let mut configs =
-            toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
+        let mut configs = toml::from_str::<ApiInfo>(&config_str)?;
 
         configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
         configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();

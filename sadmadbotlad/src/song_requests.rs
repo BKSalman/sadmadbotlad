@@ -9,6 +9,12 @@ use tokio::sync::oneshot;
 use crate::{youtube, ApiInfo};
 use html_escape::decode_html_entities;
 
+#[derive(thiserror::Error, Debug)]
+pub enum SongRequestsError {
+    #[error(transparent)]
+    SendError(#[from] mpsc::error::SendError<QueueMessages>),
+}
+
 #[derive(Debug)]
 pub enum QueueMessages {
     GetQueue(oneshot::Sender<Queue>),
@@ -229,7 +235,7 @@ pub fn play_song(
     mut song_receiver: Receiver<SongRequest>,
     queue_sender: UnboundedSender<QueueMessages>,
     // event_sender: UnboundedSender<crate::event_handler::Event>,
-) -> Result<(), eyre::Report> {
+) -> Result<(), SongRequestsError> {
     let mut event_ctx = mpv.create_event_context();
 
     event_ctx

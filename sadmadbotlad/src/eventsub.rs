@@ -1,11 +1,11 @@
 use std::fs;
 use std::sync::Arc;
 
-use crate::db::Store;
-use crate::discord::{offline_notification, online_notification};
-use crate::twitch::{TwitchApiResponse, TwitchTokenMessages};
+use crate::db::{DatabaseError, Store};
+use crate::discord::{offline_notification, online_notification, DiscordError};
+use crate::twitch::{TwitchApiResponse, TwitchError, TwitchTokenMessages};
 use crate::{Alert, AlertEventType, ApiInfo};
-use eyre::WrapErr;
+use chrono::ParseError;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
 use serde_json::{json, Value};
@@ -13,12 +13,45 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+#[derive(thiserror::Error, Debug)]
+pub enum EventsubError {
+    #[error(transparent)]
+    WsError(#[from] tokio_tungstenite::tungstenite::error::Error),
+
+    #[error("connection unsed... disconnecting")]
+    ConnectionUnsed,
+
+    #[error(transparent)]
+    TwitchTokenSendError(#[from] tokio::sync::mpsc::error::SendError<TwitchTokenMessages>),
+
+    #[error(transparent)]
+    AlertSendError(#[from] tokio::sync::broadcast::error::SendError<Alert>),
+
+    #[error(transparent)]
+    DateParseError(#[from] ParseError),
+
+    #[error(transparent)]
+    TwitchError(#[from] TwitchError),
+
+    #[error(transparent)]
+    DiscordError(#[from] DiscordError),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    DatabaseError(#[from] DatabaseError),
+
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
+}
+
 pub async fn eventsub(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     read(alerts_sender, token_sender, api_info, store).await?;
 
     Ok(())
@@ -29,14 +62,12 @@ async fn read(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
     store: Arc<Store>,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let mut connection_url = String::from("wss://eventsub.wss.twitch.tv/ws");
     let mut original_connection = true;
 
     'restart: loop {
-        let (socket, _) = connect_async(Url::parse(&connection_url).expect("Url parsed"))
-            .await
-            .wrap_err_with(|| "Couldn't connect to eventsub websocket")?;
+        let (socket, _) = connect_async(Url::parse(&connection_url).expect("Url parsed")).await?;
 
         let (mut sender, mut receiver) = socket.split();
 
@@ -75,7 +106,7 @@ async fn read(
                     let msg = msg.to_string();
                     if msg.contains("connection unused") {
                         println!("{msg}");
-                        return Err(eyre::Report::msg("connection unsed... disconnecting"));
+                        return Err(EventsubError::ConnectionUnsed);
                     }
 
                     let json_lossy = match serde_json::from_str::<Value>(&msg) {
@@ -141,7 +172,7 @@ async fn read(
                                 token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
                                 let Ok(twitch_api_info) = recv.await else {
-                                    return Err(eyre::eyre!("Could not get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
                                 };
 
                                 let res = http_client
@@ -152,10 +183,12 @@ async fn read(
                                     .await?;
 
                                 if !res.status().is_success() {
-                                    return Err(eyre::eyre!(
-                                        "status: {} :: message: {}",
-                                        res.status(),
-                                        res.text().await?
+                                    return Err(EventsubError::TwitchError(
+                                        TwitchError::TwitchApiError {
+                                            request_name: String::from("user_id"),
+                                            status: res.status(),
+                                            message: res.text().await.expect("reponse text"),
+                                        },
                                     ));
                                 }
 
@@ -426,7 +459,7 @@ async fn read(
 async fn offline_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -434,7 +467,7 @@ async fn offline_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -456,11 +489,11 @@ async fn offline_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "offline:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("offline"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -469,7 +502,7 @@ async fn offline_eventsub(
 async fn cheers_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -477,7 +510,7 @@ async fn cheers_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -499,11 +532,11 @@ async fn cheers_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "cheers:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("cheers"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -512,7 +545,7 @@ async fn cheers_eventsub(
 async fn online_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -520,7 +553,7 @@ async fn online_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -542,11 +575,11 @@ async fn online_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "online:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("online"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -555,7 +588,7 @@ async fn online_eventsub(
 async fn follow_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -563,7 +596,7 @@ async fn follow_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -585,11 +618,11 @@ async fn follow_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "follow:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("follow"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -598,7 +631,7 @@ async fn follow_eventsub(
 async fn raid_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -606,7 +639,7 @@ async fn raid_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -628,11 +661,11 @@ async fn raid_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "raid:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("raid"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -641,7 +674,7 @@ async fn raid_eventsub(
 async fn subscribe_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -649,7 +682,7 @@ async fn subscribe_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -671,11 +704,11 @@ async fn subscribe_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "subscribe:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("subscribe"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -684,7 +717,7 @@ async fn subscribe_eventsub(
 async fn resubscribe_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -692,7 +725,7 @@ async fn resubscribe_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -714,11 +747,11 @@ async fn resubscribe_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "resubscribe:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("resubscribe"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -727,7 +760,7 @@ async fn resubscribe_eventsub(
 async fn giftsub_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -735,7 +768,7 @@ async fn giftsub_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -757,11 +790,11 @@ async fn giftsub_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "resubscribe:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("giftsub"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
@@ -770,7 +803,7 @@ async fn giftsub_eventsub(
 async fn rewards_eventsub(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     session: &str,
-) -> Result<(), eyre::Report> {
+) -> Result<(), EventsubError> {
     let http_client = reqwest::Client::new();
 
     let (send, recv) = oneshot::channel();
@@ -778,7 +811,7 @@ async fn rewards_eventsub(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(api_info) = recv.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
     };
 
     let res = http_client
@@ -800,17 +833,17 @@ async fn rewards_eventsub(
         .await?;
 
     if res.status() != StatusCode::ACCEPTED {
-        return Err(eyre::eyre!(
-            "rewards:: status: {} message: {}",
-            res.status(),
-            res.text().await?
-        ));
+        return Err(EventsubError::TwitchError(TwitchError::TwitchApiError {
+            request_name: String::from("rewards"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        }));
     }
 
     Ok(())
 }
 
-fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), eyre::Report> {
+fn write_recent(sub_type: &str, arg: impl Into<String>) -> Result<(), EventsubError> {
     fs::write(
         format!("recents/recent_{}.txt", sub_type),
         format!("recent {}: {}", sub_type, arg.into()),

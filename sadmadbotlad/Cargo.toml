@@ -34,3 +34,4 @@ async-trait = "0.1.62"
 urlencoding = "2.1.2"
 rand = "0.8.5"
 hebi = { git = "https://github.com/jprochazk/hebi", branch = "v2"}
+thiserror = "1.0.40"

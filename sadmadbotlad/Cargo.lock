@@ -1996,6 +1996,7 @@ dependencies = [
  "serde",
  "serde_json",
  "surrealdb",
+ "thiserror",
  "tokio",
  "tokio-retry",
  "tokio-tungstenite",

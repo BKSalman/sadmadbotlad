@@ -11,13 +11,12 @@ use crate::{
     db::Store,
     flatten,
     song_requests::{play_song, setup_mpv, QueueMessages, SongRequest},
-    twitch::{get_title, set_title, TwitchTokenMessages},
-    Alert, AlertEventType, CommandsLoader, APP,
+    twitch::{get_title, set_title, TwitchError, TwitchTokenMessages},
+    Alert, AlertEventType, CommandsError, CommandsLoader, MainError, APP,
 };
-use eyre::Context;
 use futures_util::{
     stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt,
+    SinkExt, StreamExt, TryFutureExt,
 };
 use hebi::{IntoValue, NativeModule};
 use libmpv::Mpv;
@@ -39,6 +38,39 @@ const WARRANTY: &str = include_str!("../warranty.txt");
 
 const RULES: &str = include_str!("../rules.txt");
 
+#[derive(thiserror::Error, Debug)]
+pub enum IrcError {
+    #[error(transparent)]
+    TwitchError(#[from] TwitchError),
+
+    #[error(transparent)]
+    CommandsError(#[from] CommandsError),
+
+    #[error(transparent)]
+    WsError(#[from] tokio_tungstenite::tungstenite::Error),
+
+    #[error(transparent)]
+    TwitchTokenSendError(#[from] tokio::sync::mpsc::error::SendError<TwitchTokenMessages>),
+
+    #[error(transparent)]
+    WsSendError(#[from] tokio::sync::mpsc::error::SendError<Message>),
+
+    #[error(transparent)]
+    HebiError(#[from] hebi::Error),
+
+    #[error(transparent)]
+    MainError(#[from] MainError),
+
+    #[error("no badges tag")]
+    NoBadgeTag,
+
+    #[error("no mod tag")]
+    NoModTag,
+
+    #[error("no reply tag")]
+    NoReplyTag,
+}
+
 pub async fn irc_connect(
     irc_sender: mpsc::Sender<Message>,
     irc_receiver: mpsc::Receiver<Message>,
@@ -47,7 +79,7 @@ pub async fn irc_connect(
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     store: Arc<Store>,
-) -> eyre::Result<()> {
+) -> Result<(), IrcError> {
     println!("Starting IRC");
 
     let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
@@ -63,20 +95,22 @@ pub async fn irc_connect(
         std::thread::spawn(move || play_song(mpv_c, song_receiver, queue_sender))
     };
 
-    tokio::try_join!(flatten(tokio::spawn(read(
-        irc_sender,
-        irc_receiver,
-        ws_receiver,
-        ws_sender,
-        queue_sender,
-        token_sender,
-        mpv,
-        alerts_sender,
-        store,
-    ))),)
-    .wrap_err_with(|| "irc")?;
+    tokio::try_join!(flatten(tokio::spawn(
+        read(
+            irc_sender,
+            irc_receiver,
+            ws_receiver,
+            ws_sender,
+            queue_sender,
+            token_sender,
+            mpv,
+            alerts_sender,
+            store,
+        )
+        .map_err(Into::into)
+    )))?;
 
-    t_handle.join().expect("play_song thread")?;
+    let _ = t_handle.join().expect("play_song thread");
 
     Ok(())
 }
@@ -84,7 +118,7 @@ pub async fn irc_connect(
 pub async fn irc_login(
     ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     token_sender: UnboundedSender<TwitchTokenMessages>,
-) -> Result<(), eyre::Report> {
+) -> Result<(), IrcError> {
     let cap = Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags"));
 
     ws_sender.send(cap).await?;
@@ -94,7 +128,7 @@ pub async fn irc_login(
     token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
 
     let Ok(api_info) = one_shot_receiver.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(IrcError::TwitchError(TwitchError::TokenError));
     };
 
     let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_access_token));
@@ -122,7 +156,7 @@ async fn read(
     mpv: Arc<Mpv>,
     alerts_sender: broadcast::Sender<Alert>,
     store: Arc<Store>,
-) -> eyre::Result<()> {
+) -> Result<(), IrcError> {
     irc_login(&mut ws_sender, token_sender.clone()).await?;
 
     // TODO: move to separate task
@@ -131,7 +165,7 @@ async fn read(
             ws_sender.send(message).await?;
         }
 
-        Ok::<_, eyre::Report>(())
+        Ok::<_, IrcError>(())
     });
 
     // let voters = Arc::new(RwLock::new(HashSet::new()));
@@ -140,7 +174,7 @@ async fn read(
 
     commands_loader.load_commands("./commands")?;
 
-    let mut vm = run_hebi(irc_sender.clone(), alerts_sender).await?;
+    let mut vm = run_hebi(irc_sender.clone(), alerts_sender, token_sender.clone()).await?;
 
     'restart: loop {
         while let Some(msg) = ws_receiver.next().await {
@@ -712,14 +746,14 @@ async fn read(
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    return Err(eyre::eyre!("{e}"));
+                    return Err(IrcError::WsError(e));
                 }
             }
         }
     }
 }
 
-fn mods_only(parsed_msg: &TwitchIrcMessage) -> Result<Option<String>, color_eyre::Report> {
+fn mods_only(parsed_msg: &TwitchIrcMessage) -> Result<Option<String>, IrcError> {
     if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
         Ok(Some(String::from("This command can only be used by mods")))
     } else {
@@ -731,22 +765,22 @@ fn mods_only(parsed_msg: &TwitchIrcMessage) -> Result<Option<String>, color_eyre
 struct Tags(HashMap<String, String>);
 
 impl Tags {
-    fn is_mod(&self) -> eyre::Result<bool> {
+    fn is_mod(&self) -> Result<bool, IrcError> {
         match self.0.get("mod") {
             Some(r#mod) => Ok(r#mod == "1"),
-            None => Err(eyre::eyre!("No mod tag")),
+            None => Err(IrcError::NoModTag),
         }
     }
-    fn is_broadcaster(&self) -> eyre::Result<bool> {
+    fn is_broadcaster(&self) -> Result<bool, IrcError> {
         match self.0.get("badges") {
             Some(badges) => Ok(badges.contains("broadcaster")),
-            None => Err(eyre::eyre!("No badges tag")),
+            None => Err(IrcError::NoBadgeTag),
         }
     }
-    fn get_reply(&self) -> eyre::Result<String> {
+    fn get_reply(&self) -> Result<String, IrcError> {
         match self.0.get("reply-parent-msg-body") {
             Some(msg) => Ok(Self::decode_message(msg)),
-            None => Err(eyre::eyre!("No reply tag")),
+            None => Err(IrcError::NoReplyTag),
         }
     }
     fn decode_message(msg: &str) -> String {
