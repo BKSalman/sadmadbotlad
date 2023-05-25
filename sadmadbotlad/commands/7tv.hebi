@@ -1,0 +1,2 @@
+# TODO: concatenate args properly at the end
+ws_sender.send("https://7tv.app/emotes?query=", args)

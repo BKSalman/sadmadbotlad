@@ -1,2 +1,2 @@
 alert_sender.send(args)
-ws_sender.send("testing alert")
+ws_sender.send("testing alert", args)
