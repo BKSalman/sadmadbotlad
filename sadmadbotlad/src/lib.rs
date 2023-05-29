@@ -21,6 +21,8 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
+const COMMANDS_PATH: &str = "./commands";
+
 pub type MainError = Box<dyn Error + Send + Sync>;
 
 pub async fn flatten<T>(handle: JoinHandle<Result<T, MainError>>) -> Result<T, MainError> {
@@ -426,7 +428,9 @@ impl CommandsLoader {
         }
     }
 
-    pub fn load_commands(&mut self, path: &str) -> Result<(), CommandsError> {
+    pub fn load_commands(path: &str) -> Result<HashMap<String, String>, CommandsError> {
+        let mut commands = HashMap::new();
+
         for file in fs::read_dir(path)? {
             let file = file?;
 
@@ -440,20 +444,36 @@ impl CommandsLoader {
                 return Err(CommandsError::InvalidFile);
             };
 
-            println!(
-                "file name: {file_name} -- file type: {:?}",
-                file.file_type()
-            );
+            let command_aliases = command_name.split("+");
 
-            println!("command name: {command_name} -- extension: {extension}");
+            let command_aliases: Vec<(String, String)> = command_aliases
+                .map(|name| {
+                    println!("command name: {name} -- extension: {extension}");
+                    Ok::<_, std::io::Error>((
+                        name.to_string(),
+                        fs::read_to_string(format!("{}/{}", path, file_name))?,
+                    ))
+                })
+                .flatten()
+                .collect();
 
-            self.commands.insert(
-                command_name.to_string(),
-                fs::read_to_string(format!("{}/{}", path, file_name))?,
-            );
+            if command_aliases.len() < 1 {
+                println!("command name: {command_name} -- extension: {extension}");
+
+                commands.insert(
+                    command_name.to_string(),
+                    fs::read_to_string(format!("{}/{}", path, file_name))?,
+                );
+
+                continue;
+            }
+
+            for (command_name, command_code) in command_aliases {
+                commands.insert(command_name, command_code);
+            }
         }
 
-        Ok(())
+        Ok(commands)
     }
 }
 

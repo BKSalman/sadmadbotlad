@@ -12,7 +12,13 @@ use html_escape::decode_html_entities;
 #[derive(thiserror::Error, Debug)]
 pub enum SongRequestsError {
     #[error(transparent)]
-    SendError(#[from] mpsc::error::SendError<QueueMessages>),
+    QueueMessagesSendError(#[from] mpsc::error::SendError<QueueMessages>),
+
+    #[error(transparent)]
+    OneShotSendError(#[from] oneshot::error::RecvError),
+
+    #[error("could not get current song")]
+    CouldNotGetCurrentSong,
 }
 
 #[derive(Debug)]

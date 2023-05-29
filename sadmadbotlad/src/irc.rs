@@ -1,25 +1,29 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_set::Difference, HashMap, HashSet},
     fmt::Display,
-    fs, process,
+    fs,
+    panic::{self, AssertUnwindSafe},
+    path::Path,
+    process,
     sync::Arc,
     time::Duration,
 };
 
 use crate::{
-    commands::run_hebi,
+    commands::{run_hebi, Context},
     db::Store,
     flatten,
     song_requests::{play_song, setup_mpv, QueueMessages, SongRequest},
-    twitch::{get_title, set_title, TwitchError, TwitchTokenMessages},
-    Alert, AlertEventType, CommandsError, CommandsLoader, MainError, APP,
+    twitch::{TwitchError, TwitchTokenMessages},
+    Alert, CommandsError, CommandsLoader, MainError, APP, COMMANDS_PATH,
 };
+use futures::FutureExt;
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt, TryFutureExt,
 };
-use hebi::{IntoValue, NativeModule};
 use libmpv::Mpv;
+use notify::{RecommendedWatcher, Watcher};
 use rand::seq::SliceRandom;
 use tokio::{
     net::TcpStream,
@@ -31,12 +35,6 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
-
-const RUST_WARRANTY: &str = include_str!("../rust_warranty.txt");
-
-const WARRANTY: &str = include_str!("../warranty.txt");
-
-const RULES: &str = include_str!("../rules.txt");
 
 #[derive(thiserror::Error, Debug)]
 pub enum IrcError {
@@ -54,6 +52,9 @@ pub enum IrcError {
 
     #[error(transparent)]
     WsSendError(#[from] tokio::sync::mpsc::error::SendError<Message>),
+
+    #[error(transparent)]
+    NotifyError(#[from] notify::Error),
 
     #[error(transparent)]
     HebiError(#[from] hebi::Error),
@@ -170,9 +171,36 @@ async fn read(
 
     // let voters = Arc::new(RwLock::new(HashSet::new()));
 
-    let mut commands_loader = CommandsLoader::new();
+    let commands = CommandsLoader::load_commands(COMMANDS_PATH)?;
 
-    commands_loader.load_commands("./commands")?;
+    let commands = Arc::new(tokio::sync::Mutex::new(commands));
+
+    let cloned_commands = Arc::clone(&commands);
+
+    let (watcher_sender, mut watcher_receiver) =
+        tokio::sync::mpsc::channel::<Result<notify::Event, notify::Error>>(10);
+
+    let mut watcher = RecommendedWatcher::new(
+        move |watcher: Result<notify::Event, notify::Error>| {
+            watcher_sender.blocking_send(watcher).expect("send watcher");
+        },
+        notify::Config::default(),
+    )?;
+
+    tokio::spawn(async move {
+        while let Some(watcher) = watcher_receiver.recv().await {
+            let event = watcher.unwrap();
+
+            if event.kind.is_modify() {
+                match CommandsLoader::load_commands(COMMANDS_PATH) {
+                    Ok(new_commands) => *cloned_commands.lock().await = new_commands,
+                    Err(error) => println!("Error reloading commands: {:#?}", error),
+                }
+            }
+        }
+    });
+
+    watcher.watch(Path::new(COMMANDS_PATH), notify::RecursiveMode::Recursive)?;
 
     let mut vm = run_hebi(irc_sender.clone(), alerts_sender, token_sender.clone()).await?;
 
@@ -186,7 +214,7 @@ async fn read(
                 Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                     let parsed_msg = parse_irc(&msg);
 
-                    let (command, args) = if parsed_msg.tags.get_reply().is_ok() {
+                    let (command, args) = if parsed_msg.tags.get_reply().is_some() {
                         // remove mention
                         let (_, message) =
                             parsed_msg.message.split_once(' ').expect("remove mention");
@@ -207,14 +235,39 @@ async fn read(
                             .unwrap_or((&parsed_msg.message, ""))
                     };
 
-                    if let Some(hebi_code) =
-                        commands_loader.commands.get(&command.to_lowercase()[1..])
-                    {
+                    let locked_commands = commands.lock().await;
+
+                    if let Some(hebi_code) = locked_commands.get(&command.to_lowercase()[1..]) {
                         vm.global().set(
-                            vm.new_string("args"),
-                            (args.to_string()).into_value(vm.global()).unwrap(),
+                            vm.new_string("ctx"),
+                            vm.new_instance(Context {
+                                args: args.split_whitespace().map(|s| s.to_string()).collect(),
+                                message_metadata: parsed_msg.clone(),
+                            })?,
                         );
-                        vm.eval_async(hebi_code).await?;
+
+                        let result = AssertUnwindSafe(vm.eval_async(hebi_code))
+                            .catch_unwind()
+                            .await;
+
+                        match result {
+                            Ok(eval_result) => {
+                                if let Err(vm_error) = eval_result {
+                                    eprintln!(
+                                        "command: {command} \n-- code: {hebi_code} \n-- globals: {:#?} \n-- error: {vm_error}",
+                                        vm.global().entries().collect::<Vec<_>>()
+                                    );
+                                }
+                            }
+                            Err(panic_err) => {
+                                eprintln!("hebi panicked!");
+                                eprintln!(
+                                    "command: {command} \n-- code: {hebi_code} \n-- globals: {:#?}",
+                                    vm.global().entries().collect::<Vec<_>>()
+                                );
+                                std::panic::panic_any(panic_err);
+                            }
+                        }
                     }
 
                     // match &command.to_lowercase()[1..] {
@@ -263,7 +316,7 @@ async fn read(
                     //             .await?;
                     //     }
                     //     "skip" | "تخطي" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -414,7 +467,7 @@ async fn read(
                     //             continue;
                     //         }
 
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender.send(Message::Text(message)).await?;
                     //             continue;
                     //         }
@@ -444,7 +497,7 @@ async fn read(
                     //             .await?;
                     //     }
                     //     "play" | "إبدأ" | "ابدأ" | "ابدا" | "بدء" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -477,7 +530,7 @@ async fn read(
                     //         }
                     //     }
                     //     "playspotify" | "playsp" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -497,7 +550,7 @@ async fn read(
                     //         }
                     //     }
                     //     "stop" | "قف" | "وقف" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -531,7 +584,7 @@ async fn read(
                     //         }
                     //     }
                     //     "stopspotify" | "stopsp" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -551,7 +604,7 @@ async fn read(
                     //             .await?;
                     //     }
                     //     "قوانين" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -576,7 +629,7 @@ async fn read(
                     //             continue;
                     //         }
 
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -604,7 +657,7 @@ async fn read(
                     //         continue;
                     //     }
                     //     "workingon" | "wo" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -637,7 +690,7 @@ async fn read(
                     //         if let Ok(reply) = parsed_msg.tags.get_reply() {
                     //             let message = format!("Nerd \"{}\"", reply);
                     //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
+                    //                 .send(Message::Text(to_irc_message(message)))
                     //                 .await?;
                     //             continue;
                     //         }
@@ -688,7 +741,7 @@ async fn read(
                     //             .await?;
                     //     }
                     //     "test" => {
-                    //         if let Some(message) = mods_only(&parsed_msg)? {
+                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
@@ -753,37 +806,44 @@ async fn read(
     }
 }
 
-fn mods_only(parsed_msg: &TwitchIrcMessage) -> Result<Option<String>, IrcError> {
-    if !parsed_msg.tags.is_mod()? && !parsed_msg.tags.is_broadcaster()? {
-        Ok(Some(String::from("This command can only be used by mods")))
-    } else {
-        Ok(None)
+#[derive(Default, Debug, Clone)]
+pub struct Tags(HashMap<String, String>);
+
+impl std::ops::Deref for Tags {
+    type Target = HashMap<String, String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-#[derive(Default, Debug)]
-struct Tags(HashMap<String, String>);
-
 impl Tags {
-    fn is_mod(&self) -> Result<bool, IrcError> {
-        match self.0.get("mod") {
-            Some(r#mod) => Ok(r#mod == "1"),
-            None => Err(IrcError::NoModTag),
+    pub fn mods_only(&self) -> Option<String> {
+        if !self.is_mod()? && !self.is_broadcaster()? {
+            Some(String::from("This command can only be used by mods"))
+        } else {
+            None
         }
     }
-    fn is_broadcaster(&self) -> Result<bool, IrcError> {
-        match self.0.get("badges") {
-            Some(badges) => Ok(badges.contains("broadcaster")),
-            None => Err(IrcError::NoBadgeTag),
+    pub fn is_mod(&self) -> Option<bool> {
+        if let Some(r#mod) = self.0.get("mod") {
+            return Some(r#mod == "1");
         }
+        None
     }
-    fn get_reply(&self) -> Result<String, IrcError> {
-        match self.0.get("reply-parent-msg-body") {
-            Some(msg) => Ok(Self::decode_message(msg)),
-            None => Err(IrcError::NoReplyTag),
+    pub fn is_broadcaster(&self) -> Option<bool> {
+        if let Some(badges) = self.0.get("badges") {
+            return Some(badges.contains("broadcaster"));
         }
+        None
     }
-    fn decode_message(msg: &str) -> String {
+    pub fn get_reply(&self) -> Option<String> {
+        if let Some(msg) = self.0.get("reply-parent-msg-body") {
+            return Some(Self::decode_message(msg));
+        }
+        None
+    }
+    pub fn decode_message(msg: &str) -> String {
         let mut output = String::with_capacity(msg.len());
         // taken from:
         // https://github.com/robotty/twitch-irc-rs/blob/2e3e36b646630a0e6059896d7fece413180fb253/src/message/tags.rs#L10
@@ -807,19 +867,15 @@ impl Tags {
 
         output
     }
-    fn sender(&self) -> String {
-        self.0
-            .get("display-name")
-            .expect("display name")
-            .to_string()
+    pub fn get_sender(&self) -> Option<String> {
+        self.0.get("display-name").map(|s| s.to_string())
     }
 }
 
-#[derive(Default, Debug)]
-struct TwitchIrcMessage {
-    sender: String,
-    tags: Tags,
-    message: String,
+#[derive(Default, Debug, Clone)]
+pub struct TwitchIrcMessage {
+    pub tags: Tags,
+    pub message: String,
 }
 
 impl From<HashMap<String, String>> for Tags {
@@ -836,8 +892,6 @@ fn parse_irc(msg: &str) -> TwitchIrcMessage {
     let (tags, message) = msg.split_once(' ').expect("sperate tags and message");
 
     let message = &message[1..];
-
-    let sender = message.split_once('!').expect("sender").0.to_string();
 
     let message = message
         .split_once(':')
@@ -862,9 +916,5 @@ fn parse_irc(msg: &str) -> TwitchIrcMessage {
         .collect::<HashMap<String, String>>()
         .into();
 
-    TwitchIrcMessage {
-        tags,
-        message,
-        sender,
-    }
+    TwitchIrcMessage { tags, message }
 }
