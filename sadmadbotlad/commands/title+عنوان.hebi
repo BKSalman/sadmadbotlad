@@ -1,0 +1,7 @@
+if ctx.args().is_empty():
+    title := twitch_client.get_title()
+    ws_sender.send("Current stream title: " + title)
+else:
+    args := ctx.args().join(" ")
+    twitch_client.set_title(args)
+    ws_sender.send("Stream title set to: " + args)

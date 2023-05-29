@@ -1,0 +1,7 @@
+if ctx.args().is_empty():
+    working_on := ctx.get_working_on()
+    ws_sender.send("Currently working on: " + working_on)
+else:
+    args := ctx.args().join(" ")
+    ctx.set_working_on(args)
+    ws_sender.send("Now working on: " + args)

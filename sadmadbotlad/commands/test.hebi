@@ -1,2 +1,8 @@
-alert_sender.send(args)
-ws_sender.send("testing alert", args)
+args := ctx.args()
+
+if args.is_empty():
+    alert_sender.send("")
+    ws_sender.send("testing alert: " + "raid")
+else:
+    alert_sender.send(args[0])
+    ws_sender.send("testing alert: " + args[0])

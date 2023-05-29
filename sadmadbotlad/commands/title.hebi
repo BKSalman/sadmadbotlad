@@ -1,2 +1,0 @@
-title := twitch_client.get_title()
-ws_sender.send("Current stream title: ", title)

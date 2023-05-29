@@ -1,0 +1,8 @@
+message_metadata := ctx.message_metadata()
+reply := message_metadata["tags"].get_reply()
+
+if reply:
+    ws_sender.send("Nerd \"" + reply + "\"")
+else:
+    sender := message_metadata["tags"].get_sender()
+    ws_sender.send("Nerd @" + sender + " you need to reply to a message")
