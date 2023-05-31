@@ -19,6 +19,9 @@ pub enum SongRequestsError {
 
     #[error("could not get current song")]
     CouldNotGetCurrentSong,
+
+    #[error("could not get mpv instance")]
+    CouldNotGetMpv,
 }
 
 #[derive(Debug)]
@@ -34,9 +37,9 @@ pub enum QueueMessages {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SongRequest {
     pub title: String,
+    pub user: String,
     pub url: String,
     pub id: String,
-    pub user: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

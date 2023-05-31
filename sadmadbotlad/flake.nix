@@ -14,7 +14,6 @@
         {
           devShell = pkgs.mkShell rec {
             packages = with pkgs; [
-              playerctl
             ];
             
             nativebuildInputs = with pkgs; [
@@ -42,3 +41,4 @@
           };
       });
 }
+

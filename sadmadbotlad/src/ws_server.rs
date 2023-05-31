@@ -126,8 +126,8 @@ async fn handle_connection(
                 let alert = serde_json::from_str::<Alert>(&msg).expect("alert");
                 alerts_sender.send(alert).expect("send alert");
             }
-            Ok(Message::Pong(ping)) => {
-                println!("Events Ws:: Pong {ping:?} - from client {peer}");
+            Ok(Message::Pong(_ping)) => {
+                // println!("Events Ws:: Pong {ping:?} - from client {peer}");
             }
             Ok(msg) => {
                 println!("message: {msg:?} - from client {peer}");

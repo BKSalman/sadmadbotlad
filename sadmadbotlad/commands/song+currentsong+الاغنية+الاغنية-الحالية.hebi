@@ -1,0 +1,5 @@
+current_song := song_request_client.get_current_song()
+if current_song:
+    ws_sender.send("current song: " + current_song.title() + " - " + current_song.url() + " - requested by " + current_song.user())
+else:
+    ws_sender.send("No song playing")

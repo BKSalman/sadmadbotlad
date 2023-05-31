@@ -89,11 +89,10 @@ pub async fn irc_connect(
 
     let mpv = Arc::new(setup_mpv());
 
-    let mpv_c = mpv.clone();
-
     let t_handle = {
+        let mpv = mpv.clone();
         let queue_sender = queue_sender.clone();
-        std::thread::spawn(move || play_song(mpv_c, song_receiver, queue_sender))
+        std::thread::spawn(move || play_song(mpv, song_receiver, queue_sender))
     };
 
     tokio::try_join!(flatten(tokio::spawn(
@@ -202,7 +201,14 @@ async fn read(
 
     watcher.watch(Path::new(COMMANDS_PATH), notify::RecursiveMode::Recursive)?;
 
-    let mut vm = run_hebi(irc_sender.clone(), alerts_sender, token_sender.clone()).await?;
+    let mut vm = run_hebi(
+        irc_sender.clone(),
+        alerts_sender,
+        token_sender.clone(),
+        mpv,
+        queue_sender,
+    )
+    .await?;
 
     'restart: loop {
         while let Some(msg) = ws_receiver.next().await {

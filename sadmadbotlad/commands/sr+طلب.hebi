@@ -1,1 +1,3 @@
-ws_sender.send("sr command currently not working :) (blame moscow)")
+sender := ctx.message_metadata()["tags"].get_sender()
+response := song_request_client.sr(ctx.args().join(" "), sender)
+ws_sender.send(response)

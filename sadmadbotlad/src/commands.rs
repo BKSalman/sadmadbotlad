@@ -1,6 +1,7 @@
-use std::fs;
+use std::{fs, sync::Arc};
 
 use hebi::{Hebi, IntoValue, NativeModule, Scope, Str, This};
+use libmpv::Mpv;
 use tokio::sync::{
     broadcast,
     mpsc::{self, Sender},
@@ -10,9 +11,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
     irc::{to_irc_message, Tags, TwitchIrcMessage},
-    song_requests::QueueMessages,
+    song_requests::{QueueMessages, SongRequest},
     twitch::TwitchTokenMessages,
-    Alert,
+    Alert, APP,
 };
 
 const RUST_WARRANTY: &str = include_str!("../rust_warranty.txt");
@@ -61,6 +62,7 @@ struct SongRequetsClient(mpsc::UnboundedSender<QueueMessages>);
 
 impl SongRequetsClient {
     async fn sr(scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<String> {
+        // TODO: handle this inside hebi
         // if args.is_empty() {
         //     let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
         //     ws_sender.send(Message::Text(to_irc_message(&e))).await?;
@@ -68,7 +70,7 @@ impl SongRequetsClient {
         // }
 
         let args = scope.param::<Str>(0)?;
-        let sender = scope.param::<Str>(0)?;
+        let sender = scope.param::<Str>(1)?;
 
         let (send, recv) = oneshot::channel();
 
@@ -83,7 +85,8 @@ impl SongRequetsClient {
 
         Ok(chat_message)
     }
-    // async fn skip(scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<()> {
+    // TODO: handle inside hebi
+    // async fn skip(scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<Option<SongRequest>> {
     //     // if let Some(message) = mods_only(&parsed_msg)? {
     //     //     ws_sender
     //     //         .send(Message::Text(to_irc_message(&message)))
@@ -91,27 +94,42 @@ impl SongRequetsClient {
     //     //     continue;
     //     // }
 
-    //     let mpv = scope.param::<WsSender>(0)?;
-
-    //     let (send, recv) = oneshot::channel();
-
-    //     this.0.send(QueueMessages::GetCurrentSong(send))?;
-
-    //     let Ok(current_song) = recv.await else {
+    //     let Ok(current_song) = Self::get_current_song(scope, this).await else {
     //         return Err(SongRequestsError::CouldNotGetCurrentSong).map_err(hebi::Error::user);
     //     };
 
-    //     let mut chat_message = String::new();
+    //     // TODO: handle inside hebi
 
-    //     if let Some(song) = current_song {
-    //         if mpv.playlist_next_force().is_ok() {
-    //             chat_message = format!("Skipped: {}", song.title);
-    //         }
-    //     } else {
-    //         chat_message = String::from("No song playing");
-    //     }
+    //     // let mut chat_message = String::new();
+
+    //     // if let Some(song) = current_song {
+    //     //     if mpv.0.playlist_next_force().is_ok() {
+    //     //         chat_message = format!("Skipped: {}", song.title);
+    //     //     }
+    //     // } else {
+    //     //     chat_message = String::from("No song playing");
+    //     // }
+
     //     Ok(())
     // }
+    async fn get_current_song<'a>(
+        scope: Scope<'a>,
+        this: This<'_, Self>,
+    ) -> hebi::Result<Option<hebi::Value<'a>>> {
+        let (send, recv) = oneshot::channel();
+
+        this.0
+            .send(QueueMessages::GetCurrentSong(send))
+            .map_err(hebi::Error::user)?;
+
+        let Some(current_song) = recv.await.map_err(hebi::Error::user)? else {
+            return Ok(None);
+        };
+
+        let current_song = scope.new_instance(current_song)?;
+
+        Ok(Some(current_song))
+    }
 }
 
 struct TwitchClient(mpsc::UnboundedSender<TwitchTokenMessages>);
@@ -136,15 +154,109 @@ impl TwitchClient {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+enum MpvClientError {
+    #[error("{0}")]
+    MpvError(String),
+}
+
+struct MpvClient(Arc<Mpv>);
+
+impl MpvClient {
+    fn next(_scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<()> {
+        if let Err(err) = this.0.playlist_next_force() {
+            eprintln!("Mpv Error: {:#?}", err);
+            return Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user);
+        }
+
+        Ok(())
+    }
+    fn get_volume(_scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<i32> {
+        match this.0.get_property::<i64>("volume") {
+            Ok(volume) => Ok(volume as i32),
+            Err(err) => {
+                eprintln!("Mpv Error: {:#?}", err);
+                Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user)
+            }
+        }
+    }
+    fn set_volume(scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<()> {
+        let volume = scope.param::<i32>(0)?;
+
+        if let Err(err) = this.0.set_property("volume", volume as i64) {
+            eprintln!("Mpv Error: {:#?}", err);
+            return Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user);
+        }
+
+        Ok(())
+    }
+}
+
 pub struct Context {
     pub args: Vec<String>,
     pub message_metadata: TwitchIrcMessage,
+}
+
+impl Context {
+    fn args<'a>(scope: Scope<'a>, this: This<'_, Self>) -> hebi::Result<hebi::List<'a>> {
+        let args = scope.new_list(this.args.capacity());
+        for arg in this.args.iter() {
+            let arg = scope.new_string(arg);
+            args.push(arg.into_value(scope.global())?);
+        }
+
+        Ok(args)
+    }
+
+    fn set_working_on<'a>(scope: Scope<'a>, _this: This<'_, Self>) -> hebi::Result<()> {
+        let args = scope.param::<Str>(0)?;
+
+        fs::write("workingon.txt", format!("Currently: {}", args)).map_err(hebi::Error::user)?;
+
+        Ok(())
+    }
+
+    fn get_working_on<'a>(_scope: Scope<'a>, _this: This<'_, Self>) -> hebi::Result<String> {
+        let working_on = fs::read_to_string("workingon.txt")
+            .map_err(hebi::Error::user)?
+            .split_once(" ")
+            .unwrap_or(("", ""))
+            .1
+            .to_string();
+
+        Ok(working_on)
+    }
+
+    fn message_metadata<'a>(
+        scope: Scope<'a>,
+        this: This<'_, Self>,
+    ) -> hebi::Result<hebi::Table<'a>> {
+        let metadata = scope.new_table(
+            this.message_metadata.tags.capacity() + this.message_metadata.message.capacity(),
+        );
+
+        let tags = scope.new_instance(this.message_metadata.tags.clone())?;
+
+        metadata.insert(scope.new_string("tags"), tags);
+
+        metadata.insert(
+            scope.new_string("message"),
+            this.message_metadata
+                .message
+                .clone()
+                .into_value(scope.global())?,
+        );
+
+        Ok(metadata)
+    }
 }
 
 pub async fn run_hebi(
     irc_sender: Sender<Message>,
     alert_sender: broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
+    mpv: Arc<Mpv>,
+    queue_sender: mpsc::UnboundedSender<QueueMessages>,
 ) -> Result<Hebi, hebi::Error> {
     let mut vm = Hebi::new();
 
@@ -182,6 +294,20 @@ pub async fn run_hebi(
         vm.new_string(RULES).into_value(vm.global())?,
     );
 
+    vm.global().set(
+        vm.new_string("cmd_delim"),
+        vm.new_string(APP.config.cmd_delim)
+            .into_value(vm.global())?,
+    );
+
+    vm.global().set(
+        vm.new_string("song_request_client"),
+        vm.new_instance(SongRequetsClient(queue_sender))?,
+    );
+
+    vm.global()
+        .set(vm.new_string("mpv"), vm.new_instance(MpvClient(mpv))?);
+
     vm.eval_async(
         r#"
 ws_sender.send("YEP")
@@ -208,53 +334,10 @@ fn get_module() -> NativeModule {
         })
         .class::<Context>("Context", |class| {
             class
-                .method("args", |scope, this| {
-                    let args = scope.new_list(this.args.capacity());
-                    for arg in this.args.iter() {
-                        let arg = scope.new_string(arg);
-                        args.push(arg.into_value(scope.global())?);
-                    }
-
-                    Ok(args)
-                })
-                .method("message_metadata", |scope, this| {
-                    let metadata = scope.new_table(
-                        this.message_metadata.tags.capacity()
-                            + this.message_metadata.message.capacity(),
-                    );
-
-                    let tags = scope.new_instance(this.message_metadata.tags.clone())?;
-
-                    metadata.insert(scope.new_string("tags"), tags);
-
-                    metadata.insert(
-                        scope.new_string("message"),
-                        this.message_metadata
-                            .message
-                            .clone()
-                            .into_value(scope.global())?,
-                    );
-
-                    Ok(metadata)
-                })
-                .method("set_working_on", |scope, _this| {
-                    let args = scope.param::<Str>(0)?;
-
-                    fs::write("workingon.txt", format!("Currently: {}", args))
-                        .map_err(hebi::Error::user)?;
-
-                    Ok(())
-                })
-                .method("get_working_on", |_scope, _this| {
-                    let working_on = fs::read_to_string("workingon.txt")
-                        .map_err(hebi::Error::user)?
-                        .split_once(" ")
-                        .unwrap_or(("", ""))
-                        .1
-                        .to_string();
-
-                    Ok(working_on)
-                })
+                .method("args", Context::args)
+                .method("message_metadata", Context::message_metadata)
+                .method("set_working_on", Context::set_working_on)
+                .method("get_working_on", Context::get_working_on)
                 .finish()
         })
         .class::<TwitchIrcMessage>("TwitchIrcMessage", |class| class.finish())
@@ -263,6 +346,27 @@ fn get_module() -> NativeModule {
                 .method("mods_only", |_scope, this| this.mods_only())
                 .method("get_reply", |_scope, this| this.get_reply())
                 .method("get_sender", |_scope, this| this.get_sender())
+                .finish()
+        })
+        .class::<SongRequetsClient>("SongRequetsClient", |class| {
+            class
+                .async_method("sr", SongRequetsClient::sr)
+                .async_method("get_current_song", SongRequetsClient::get_current_song)
+                .finish()
+        })
+        .class::<MpvClient>("MpvClient", |class| {
+            class
+                .method("next", MpvClient::next)
+                .method("set_volume", MpvClient::set_volume)
+                .method("get_volume", MpvClient::get_volume)
+                .finish()
+        })
+        .class::<SongRequest>("SongRequest", |class| {
+            class
+                .method("title", |_scope, this| this.title.clone())
+                .method("url", |_scope, this| this.url.clone())
+                .method("user", |_scope, this| this.user.clone())
+                .method("id", |_scope, this| this.id.clone())
                 .finish()
         })
         .finish()
