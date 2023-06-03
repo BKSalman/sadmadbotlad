@@ -1,13 +1,4 @@
-use std::{
-    collections::{hash_set::Difference, HashMap, HashSet},
-    fmt::Display,
-    fs,
-    panic::{self, AssertUnwindSafe},
-    path::Path,
-    process,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Display, panic::AssertUnwindSafe, path::Path, sync::Arc};
 
 use crate::{
     commands::{run_hebi, Context},
@@ -18,21 +9,16 @@ use crate::{
     Alert, CommandsError, CommandsLoader, MainError, APP, COMMANDS_PATH,
 };
 use futures::FutureExt;
-use futures_util::{
-    stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt, TryFutureExt,
-};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt, TryFutureExt};
 use libmpv::Mpv;
 use notify::{RecommendedWatcher, Watcher};
-use rand::seq::SliceRandom;
 use tokio::{
     net::TcpStream,
     sync::{
         broadcast,
         mpsc::{self, UnboundedSender},
-        oneshot, RwLock,
+        oneshot,
     },
-    task::JoinHandle,
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
@@ -73,8 +59,6 @@ pub enum IrcError {
 }
 
 pub async fn irc_connect(
-    irc_sender: mpsc::Sender<Message>,
-    irc_receiver: mpsc::Receiver<Message>,
     alerts_sender: broadcast::Sender<Alert>,
     song_receiver: mpsc::Receiver<SongRequest>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
@@ -82,10 +66,6 @@ pub async fn irc_connect(
     store: Arc<Store>,
 ) -> Result<(), IrcError> {
     println!("Starting IRC");
-
-    let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
-
-    let (ws_sender, ws_receiver) = socket.split();
 
     let mpv = Arc::new(setup_mpv());
 
@@ -96,18 +76,7 @@ pub async fn irc_connect(
     };
 
     tokio::try_join!(flatten(tokio::spawn(
-        read(
-            irc_sender,
-            irc_receiver,
-            ws_receiver,
-            ws_sender,
-            queue_sender,
-            token_sender,
-            mpv,
-            alerts_sender,
-            store,
-        )
-        .map_err(Into::into)
+        read(queue_sender, token_sender, mpv, alerts_sender, store,).map_err(Into::into)
     )))?;
 
     let _ = t_handle.join().expect("play_song thread");
@@ -146,28 +115,14 @@ pub async fn irc_login(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn read(
-    irc_sender: mpsc::Sender<Message>,
-    mut irc_receiver: mpsc::Receiver<Message>,
-    mut ws_receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    mut ws_sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     mpv: Arc<Mpv>,
     alerts_sender: broadcast::Sender<Alert>,
-    store: Arc<Store>,
+    _store: Arc<Store>,
 ) -> Result<(), IrcError> {
-    irc_login(&mut ws_sender, token_sender.clone()).await?;
-
-    // TODO: move to separate task
-    tokio::spawn(async move {
-        while let Some(message) = irc_receiver.recv().await {
-            ws_sender.send(message).await?;
-        }
-
-        Ok::<_, IrcError>(())
-    });
-
     // let voters = Arc::new(RwLock::new(HashSet::new()));
 
     let commands = CommandsLoader::load_commands(COMMANDS_PATH)?;
@@ -201,16 +156,35 @@ async fn read(
 
     watcher.watch(Path::new(COMMANDS_PATH), notify::RecursiveMode::Recursive)?;
 
-    let mut vm = run_hebi(
-        irc_sender.clone(),
-        alerts_sender,
-        token_sender.clone(),
-        mpv,
-        queue_sender,
-    )
-    .await?;
-
     'restart: loop {
+        println!("irc 'restart loop");
+
+        let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
+
+        let (mut ws_sender, mut ws_receiver) = socket.split();
+
+        irc_login(&mut ws_sender, token_sender.clone()).await?;
+
+        let (irc_sender, mut irc_receiver) = tokio::sync::mpsc::channel::<Message>(200);
+
+        let mut vm = run_hebi(
+            irc_sender.clone(),
+            alerts_sender.clone(),
+            token_sender.clone(),
+            mpv.clone(),
+            queue_sender.clone(),
+        )
+        .await?;
+
+        // TODO: move to separate task
+        tokio::spawn(async move {
+            while let Some(message) = irc_receiver.recv().await {
+                ws_sender.send(message).await?;
+            }
+
+            Ok::<_, IrcError>(())
+        });
+
         while let Some(msg) = ws_receiver.next().await {
             match msg {
                 Ok(Message::Ping(ping)) => {
@@ -299,58 +273,6 @@ async fn read(
 
                     //         println!("{events:#?}");
                     //     }
-                    //     "sr" | "طلب" => {
-                    //         if args.is_empty() {
-                    //             let e = format!("Correct usage: {}sr <URL>", APP.config.cmd_delim);
-                    //             ws_sender.send(Message::Text(to_irc_message(&e))).await?;
-                    //             continue;
-                    //         }
-
-                    //         let (send, recv) = oneshot::channel();
-
-                    //         queue_sender.send(QueueMessages::Sr(
-                    //             (parsed_msg.sender, args.to_string()),
-                    //             send,
-                    //         ))?;
-
-                    //         let Ok(message) = recv.await else {
-                    //         return Err(eyre::eyre!("Could not request song"));
-                    //     };
-
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&message)))
-                    //             .await?;
-                    //     }
-                    //     "skip" | "تخطي" => {
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         let (send, recv) = oneshot::channel();
-
-                    //         queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                    //         let Ok(current_song) = recv.await else {
-                    //             return Err(eyre::eyre!("Could not get current song"));
-                    //         };
-
-                    //         let mut message = String::new();
-
-                    //         if let Some(song) = current_song {
-                    //             if mpv.playlist_next_force().is_ok() {
-                    //                 message = format!("Skipped: {}", song.title);
-                    //             }
-                    //         } else {
-                    //             message = String::from("No song playing");
-                    //         }
-
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&message)))
-                    //             .await?;
-                    //     }
                     //     "voteskip" | "تصويت-تخطي" => {
                     //         // TODO: figure out how to make every vote reset the timer (timeout??)
 
@@ -408,36 +330,6 @@ async fn read(
                     //                 .send(Message::Text(to_irc_message(&message)))
                     //                 .await?;
                     //         }
-                    //     }
-                    //     "queue" | "q" | "السرا" => {
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(
-                    //                 "Check the queue at: https://f5rfm.bksalman.com",
-                    //             )))
-                    //             .await?;
-                    //     }
-                    //     "currentsong" | "song" | "الحالية" | "الاغنية" | "الاغنيةالحالية" =>
-                    //     {
-                    //         let (send, recv) = oneshot::channel();
-
-                    //         queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                    //         let Ok(current_song) = recv.await else {
-                    //         return Err(eyre::eyre!("Could not get current song"));
-                    //     };
-
-                    //         let message = if let Some(song) = current_song {
-                    //             format!(
-                    //                 "current song: {} , requested by {} - {}",
-                    //                 song.title, song.user, song.url,
-                    //             )
-                    //         } else {
-                    //             String::from("No song playing")
-                    //         };
-
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&message)))
-                    //             .await?;
                     //     }
                     //     "currentspotify" | "currentsp" => {
                     //         let cmd = process::Command::new("playerctl")
@@ -805,7 +697,8 @@ async fn read(
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    return Err(IrcError::WsError(e));
+                    eprintln!("irc websocket error: {e}");
+                    continue 'restart;
                 }
             }
         }

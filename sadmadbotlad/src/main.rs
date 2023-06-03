@@ -10,7 +10,6 @@ use sadmadbotlad::ws_server::ws_server;
 use sadmadbotlad::{eventsub::eventsub, irc::irc_connect};
 use sadmadbotlad::{flatten, Alert, ApiInfo, MainError, APP};
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
@@ -39,8 +38,6 @@ async fn run() -> Result<(), MainError> {
 
     let store = Arc::new(Store::new().await?);
 
-    let (irc_sender, irc_receiver) = tokio::sync::mpsc::channel::<Message>(200);
-
     tokio::try_join!(
         flatten(tokio::spawn(
             eventsub(
@@ -58,8 +55,6 @@ async fn run() -> Result<(), MainError> {
         )),
         flatten(tokio::spawn(
             irc_connect(
-                irc_sender,
-                irc_receiver,
                 alerts_sender.clone(),
                 song_receiver,
                 queue_sender.clone(),
