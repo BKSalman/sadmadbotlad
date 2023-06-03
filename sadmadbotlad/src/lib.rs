@@ -405,6 +405,7 @@ impl<S> TakeVal for S {
     }
 }
 
+#[derive(Default, Debug)]
 pub struct CommandsLoader {
     commands: HashMap<String, String>,
 }
@@ -429,6 +430,8 @@ impl CommandsLoader {
     }
 
     pub fn load_commands(path: &str) -> Result<HashMap<String, String>, CommandsError> {
+        println!("loading commands");
+
         let mut commands = HashMap::new();
 
         for file in fs::read_dir(path)? {
@@ -440,24 +443,23 @@ impl CommandsLoader {
                 .ok_or(CommandsError::InvalidFileName)?
                 .to_string();
 
-            let Some((command_name, extension)) = file_name.rsplit_once(".") else {
+            let Some((command_name, extension)) = file_name.rsplit_once('.') else {
                 return Err(CommandsError::InvalidFile);
             };
 
-            let command_aliases = command_name.split("+");
+            let command_aliases = command_name.split('+');
 
             let command_aliases: Vec<(String, String)> = command_aliases
-                .map(|name| {
-                    println!("command name: {name} -- extension: {extension}");
+                .flat_map(|name| {
+                    // println!("command name: {name} -- extension: {extension}");
                     Ok::<_, std::io::Error>((
                         name.to_string(),
                         fs::read_to_string(format!("{}/{}", path, file_name))?,
                     ))
                 })
-                .flatten()
                 .collect();
 
-            if command_aliases.len() < 1 {
+            if command_aliases.is_empty() {
                 println!("command name: {command_name} -- extension: {extension}");
 
                 commands.insert(

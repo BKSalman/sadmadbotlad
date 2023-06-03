@@ -126,7 +126,7 @@ impl Queue {
 
         self.enqueue(&song).expect("Enqueuing");
 
-        return Ok(format!("Added: {}", video_title));
+        Ok(format!("Added: {}", video_title))
     }
 }
 

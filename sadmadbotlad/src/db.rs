@@ -82,10 +82,10 @@ impl Store {
             .expect("id not returned")?;
 
         if let Value::Object(mut val) = first_val.first() {
-            val.take_val::<String>("id")
-        } else {
-            return Err(DatabaseError::EventNotReturned);
+            return val.take_val::<String>("id");
         }
+
+        Err(DatabaseError::EventNotReturned)
     }
 
     pub async fn get_events(&self) -> Result<Vec<Object>, DatabaseError> {
@@ -127,10 +127,10 @@ impl Store {
             .expect("no response")?;
 
         if let Value::Object(val) = first_val.first() {
-            Ok(val)
-        } else {
-            return Err(DatabaseError::EventNotFound);
+            return Ok(val);
         }
+
+        Err(DatabaseError::EventNotFound)
     }
 
     pub async fn delete_events_table(&self) -> Result<(), DatabaseError> {
