@@ -208,7 +208,7 @@ impl Context {
         Ok(args)
     }
 
-    fn set_working_on<'a>(scope: Scope<'a>, _this: This<'_, Self>) -> hebi::Result<()> {
+    fn set_working_on(scope: Scope<'_>, _this: This<'_, Self>) -> hebi::Result<()> {
         let args = scope.param::<Str>(0)?;
 
         fs::write("workingon.txt", format!("Currently: {}", args)).map_err(hebi::Error::user)?;
@@ -216,10 +216,10 @@ impl Context {
         Ok(())
     }
 
-    fn get_working_on<'a>(_scope: Scope<'a>, _this: This<'_, Self>) -> hebi::Result<String> {
+    fn get_working_on(_scope: Scope<'_>, _this: This<'_, Self>) -> hebi::Result<String> {
         let working_on = fs::read_to_string("workingon.txt")
             .map_err(hebi::Error::user)?
-            .split_once(" ")
+            .split_once(' ')
             .unwrap_or(("", ""))
             .1
             .to_string();
@@ -359,6 +359,28 @@ fn get_module() -> NativeModule {
                 .method("next", MpvClient::next)
                 .method("set_volume", MpvClient::set_volume)
                 .method("get_volume", MpvClient::get_volume)
+                .method("unpause", |_scope, this| {
+                    this.0
+                        .unpause()
+                        .map_err(|err| {
+                            eprintln!("Mpv Error: {:#?}", err);
+                            MpvClientError::MpvError(err.to_string())
+                        })
+                        .map_err(hebi::Error::user)?;
+
+                    Ok(())
+                })
+                .method("pause", |_scope, this| {
+                    this.0
+                        .pause()
+                        .map_err(|err| {
+                            eprintln!("Mpv Error: {:#?}", err);
+                            MpvClientError::MpvError(err.to_string())
+                        })
+                        .map_err(hebi::Error::user)?;
+
+                    Ok(())
+                })
                 .finish()
         })
         .class::<SongRequest>("SongRequest", |class| {

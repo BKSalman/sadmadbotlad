@@ -22,6 +22,9 @@ pub enum TwitchError {
     #[error("could not get twitch token")]
     TokenError,
 
+    #[error("twitch fucked the data")]
+    FuckedUp,
+
     #[error("{request_name} {status}::{message}")]
     TwitchApiError {
         request_name: String,

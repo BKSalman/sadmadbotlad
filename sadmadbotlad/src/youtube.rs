@@ -20,7 +20,7 @@ pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
         return Ok(url.rsplit_once('/').expect("yt watch format link").1);
     }
 
-    return Err(eyre::eyre!("Not A Valid Youtube URL"));
+    Err(eyre::eyre!("Not A Valid Youtube URL"))
 }
 
 pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<String, eyre::Report> {
