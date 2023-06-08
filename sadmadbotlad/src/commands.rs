@@ -1,6 +1,6 @@
 use std::{fs, sync::Arc};
 
-use hebi::{Hebi, IntoValue, NativeModule, Scope, Str, This};
+use hebi::public::{Hebi, IntoValue, NativeModule, Scope, Str, This};
 use libmpv::Mpv;
 use tokio::sync::{
     broadcast,
@@ -115,7 +115,7 @@ impl SongRequetsClient {
     async fn get_current_song<'a>(
         scope: Scope<'a>,
         this: This<'_, Self>,
-    ) -> hebi::Result<Option<hebi::Value<'a>>> {
+    ) -> hebi::Result<Option<hebi::public::Value<'a>>> {
         let (send, recv) = oneshot::channel();
 
         this.0
@@ -198,7 +198,7 @@ pub struct Context {
 }
 
 impl Context {
-    fn args<'a>(scope: Scope<'a>, this: This<'_, Self>) -> hebi::Result<hebi::List<'a>> {
+    fn args<'a>(scope: Scope<'a>, this: This<'_, Self>) -> hebi::Result<hebi::public::List<'a>> {
         let args = scope.new_list(this.args.capacity());
         for arg in this.args.iter() {
             let arg = scope.new_string(arg);
@@ -230,7 +230,7 @@ impl Context {
     fn message_metadata<'a>(
         scope: Scope<'a>,
         this: This<'_, Self>,
-    ) -> hebi::Result<hebi::Table<'a>> {
+    ) -> hebi::Result<hebi::public::Table<'a>> {
         let metadata = scope.new_table(
             this.message_metadata.tags.capacity() + this.message_metadata.message.capacity(),
         );
