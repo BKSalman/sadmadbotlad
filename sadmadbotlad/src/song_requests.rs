@@ -9,6 +9,21 @@ use tokio::sync::oneshot;
 use crate::{youtube, ApiInfo};
 use html_escape::decode_html_entities;
 
+#[derive(thiserror::Error, Debug)]
+pub enum SongRequestsError {
+    #[error(transparent)]
+    QueueMessagesSendError(#[from] mpsc::error::SendError<QueueMessages>),
+
+    #[error(transparent)]
+    OneShotSendError(#[from] oneshot::error::RecvError),
+
+    #[error("could not get current song")]
+    CouldNotGetCurrentSong,
+
+    #[error("could not get mpv instance")]
+    CouldNotGetMpv,
+}
+
 #[derive(Debug)]
 pub enum QueueMessages {
     GetQueue(oneshot::Sender<Queue>),
@@ -22,9 +37,9 @@ pub enum QueueMessages {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SongRequest {
     pub title: String,
+    pub user: String,
     pub url: String,
     pub id: String,
-    pub user: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -111,7 +126,7 @@ impl Queue {
 
         self.enqueue(&song).expect("Enqueuing");
 
-        return Ok(format!("Added: {}", video_title));
+        Ok(format!("Added: {}", video_title))
     }
 }
 
@@ -229,7 +244,7 @@ pub fn play_song(
     mut song_receiver: Receiver<SongRequest>,
     queue_sender: UnboundedSender<QueueMessages>,
     // event_sender: UnboundedSender<crate::event_handler::Event>,
-) -> Result<(), eyre::Report> {
+) -> Result<(), SongRequestsError> {
     let mut event_ctx = mpv.create_event_context();
 
     event_ctx

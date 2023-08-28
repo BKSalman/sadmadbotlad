@@ -9,12 +9,20 @@
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem
       (system: let
-        pkgs = import nixpkgs { inherit system; };
+        rustOverlay = builtins.fetchTarball {
+          url = "https://github.com/oxalica/rust-overlay/archive/master.tar.gz";
+          sha256 = "04csw82q0y46y3bcpk645cfkid95q6ghnacw8b9x3lmwppwab686";
+        };
+
+        pkgs = import nixpkgs { inherit system; overlays = [ (import rustOverlay) ]; };
       in
         {
           devShell = pkgs.mkShell rec {
             packages = with pkgs; [
-              playerctl
+              (rust-bin.stable.latest.default.override {
+                extensions = [ "rust-src" "rust-analyzer" ];
+                targets = [ "wasm32-unknown-unknown" ];
+              })
             ];
             
             nativebuildInputs = with pkgs; [
@@ -42,3 +50,4 @@
           };
       });
 }
+

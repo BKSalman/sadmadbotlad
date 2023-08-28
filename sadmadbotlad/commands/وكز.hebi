@@ -1,0 +1,7 @@
+args := ctx.args()
+
+if args:
+    ws_sender.send("!يكز " + args.join(" "))
+else:
+    ws_sender.send("!يكز")
+

@@ -1,16 +1,17 @@
-use std::{convert::TryInto, fs, io::Read, sync::Arc};
+use std::{collections::HashMap, convert::TryInto, error::Error, fs, io::Read, sync::Arc};
 
 use clap::{command, Parser};
-use eyre::WrapErr;
+use db::DatabaseError;
+use hebi::prelude::*;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use song_requests::Queue;
 use tokio::task::JoinHandle;
 use twitch::TwitchApiInfo;
 
+pub mod commands;
 pub mod db;
 pub mod discord;
-// pub mod event_handler;
 pub mod eventsub;
 pub mod irc;
 pub mod obs_websocket;
@@ -20,11 +21,15 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
-pub async fn flatten<T>(handle: JoinHandle<Result<T, eyre::Report>>) -> Result<T, eyre::Report> {
+const COMMANDS_PATH: &str = "./commands";
+
+pub type MainError = Box<dyn Error + Send + Sync>;
+
+pub async fn flatten<T>(handle: JoinHandle<Result<T, MainError>>) -> Result<T, MainError> {
     match handle.await {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err),
-        Err(e) => Err(e).wrap_err_with(|| "handling failed"),
+        Err(e) => Err(Box::new(e)),
     }
 }
 
@@ -186,6 +191,65 @@ pub struct Alert {
     r#type: AlertEventType,
 }
 
+impl Alert {
+    pub fn raid_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Raid {
+                from: String::from("lmao"),
+                viewers: 9999,
+            },
+        }
+    }
+    pub fn follow_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Follow {
+                follower: String::from("lmao"),
+            },
+        }
+    }
+    pub fn sub_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Subscribe {
+                subscriber: String::from("lmao"),
+                tier: String::from("3"),
+            },
+        }
+    }
+    pub fn resub_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::ReSubscribe {
+                subscriber: String::from("lmao"),
+                tier: String::from("3"),
+                subscribed_for: 4,
+                streak: 2,
+            },
+        }
+    }
+    pub fn giftsub_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::GiftSub {
+                gifter: String::from("lmao"),
+                total: 9999,
+                tier: String::from("3"),
+            },
+        }
+    }
+    pub fn asd_test() -> Self {
+        Alert {
+            new: true,
+            r#type: AlertEventType::Raid {
+                from: String::from("asd"),
+                viewers: 9999,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum SrEvent {
     QueueRequest,
@@ -236,69 +300,69 @@ macro_rules! string {
 }
 
 // This allows me to implement traits on external types
-// it's called Newtype pattern
+// "Newtype pattern"
 pub struct Wrapper<T>(pub T);
 
 use surrealdb::sql::{Array, Object, Value};
 
 impl TryFrom<Wrapper<Value>> for Object {
-    type Error = eyre::Report;
-    fn try_from(val: Wrapper<Value>) -> eyre::Result<Object> {
+    type Error = DatabaseError;
+    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
         match val.0 {
             Value::Object(obj) => Ok(obj),
-            _ => Err(eyre::eyre!("value not of type Object")),
+            _ => Err(DatabaseError::NotObject),
         }
     }
 }
 
 impl TryFrom<Wrapper<Value>> for Array {
-    type Error = eyre::Report;
-    fn try_from(val: Wrapper<Value>) -> eyre::Result<Array> {
+    type Error = DatabaseError;
+    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
         match val.0 {
             Value::Array(obj) => Ok(obj),
-            _ => Err(eyre::eyre!("value not of type Array")),
+            _ => Err(DatabaseError::NotArray),
         }
     }
 }
 
 impl TryFrom<Wrapper<Value>> for i64 {
-    type Error = eyre::Report;
-    fn try_from(val: Wrapper<Value>) -> eyre::Result<i64> {
+    type Error = DatabaseError;
+    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
         match val.0 {
             Value::Number(obj) => Ok(obj.as_int()),
-            _ => Err(eyre::eyre!("value not of type i64")),
+            _ => Err(DatabaseError::NotI64),
         }
     }
 }
 
 impl TryFrom<Wrapper<Value>> for bool {
-    type Error = eyre::Report;
-    fn try_from(val: Wrapper<Value>) -> eyre::Result<bool> {
+    type Error = DatabaseError;
+    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
         match val.0 {
             Value::False => Ok(false),
             Value::True => Ok(true),
-            _ => Err(eyre::eyre!("value not of type bool")),
+            _ => Err(DatabaseError::NotBool),
         }
     }
 }
 
 impl TryFrom<Wrapper<Value>> for String {
-    type Error = eyre::Report;
-    fn try_from(val: Wrapper<Value>) -> eyre::Result<String> {
+    type Error = DatabaseError;
+    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
         match val.0 {
             Value::Strand(strand) => Ok(strand.as_string()),
             Value::Thing(thing) => Ok(thing.to_string()),
-            _ => Err(eyre::eyre!("value not of type String")),
+            _ => Err(DatabaseError::NotString),
         }
     }
 }
 
 pub trait TakeImpl<T> {
-    fn take_impl(&mut self, key: &str) -> eyre::Result<Option<T>>;
+    fn take_impl(&mut self, key: &str) -> Result<Option<T>, DatabaseError>;
 }
 
 impl TakeImpl<String> for Object {
-    fn take_impl(&mut self, key: &str) -> eyre::Result<Option<String>> {
+    fn take_impl(&mut self, key: &str) -> Result<Option<String>, DatabaseError> {
         let value = self.remove(key).map(|v| Wrapper(v).try_into());
         match value {
             None => Ok(None),
@@ -309,13 +373,13 @@ impl TakeImpl<String> for Object {
 }
 
 impl TakeImpl<bool> for Object {
-    fn take_impl(&mut self, key: &str) -> eyre::Result<Option<bool>> {
+    fn take_impl(&mut self, key: &str) -> Result<Option<bool>, DatabaseError> {
         Ok(self.remove(key).map(|v| v.is_true()))
     }
 }
 
 impl TakeImpl<i64> for Object {
-    fn take_impl(&mut self, key: &str) -> eyre::Result<Option<i64>> {
+    fn take_impl(&mut self, key: &str) -> Result<Option<i64>, DatabaseError> {
         let value = self.remove(key).map(|v| Wrapper(v).try_into());
         match value {
             None => Ok(None),
@@ -326,17 +390,102 @@ impl TakeImpl<i64> for Object {
 }
 
 pub trait TakeVal {
-    fn take_val<T>(&mut self, key: &str) -> eyre::Result<T>
+    fn take_val<T>(&mut self, key: &str) -> Result<T, DatabaseError>
     where
         Self: TakeImpl<T>;
 }
 
 impl<S> TakeVal for S {
-    fn take_val<T>(&mut self, key: &str) -> eyre::Result<T>
+    fn take_val<T>(&mut self, key: &str) -> Result<T, DatabaseError>
     where
         Self: TakeImpl<T>,
     {
         let value: Option<T> = TakeImpl::take_impl(self, key)?;
-        value.ok_or_else(|| eyre::eyre!("Property {} not found ", key))
+        value.ok_or_else(|| DatabaseError::PropertyNotFound(key.to_string()))
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct CommandsLoader {
+    commands: HashMap<String, String>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum CommandsError {
+    #[error("invalid file: should be a hebi file with .hebi extension")]
+    InvalidFile,
+
+    #[error("file name is invalid")]
+    InvalidFileName,
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+}
+
+impl CommandsLoader {
+    pub fn new() -> Self {
+        Self {
+            commands: HashMap::new(),
+        }
+    }
+
+    pub fn load_commands(path: &str) -> Result<HashMap<String, String>, CommandsError> {
+        println!("loading commands");
+
+        let mut commands = HashMap::new();
+
+        for file in fs::read_dir(path)? {
+            let file = file?;
+
+            let file_name = file
+                .file_name()
+                .to_str()
+                .ok_or(CommandsError::InvalidFileName)?
+                .to_string();
+
+            let Some((command_name, extension)) = file_name.rsplit_once('.') else {
+                return Err(CommandsError::InvalidFile);
+            };
+
+            let command_aliases = command_name.split('+');
+
+            let command_aliases: Vec<(String, String)> = command_aliases
+                .flat_map(|name| {
+                    // println!("command name: {name} -- extension: {extension}");
+                    Ok::<_, std::io::Error>((
+                        name.to_string(),
+                        fs::read_to_string(format!("{}/{}", path, file_name))?,
+                    ))
+                })
+                .collect();
+
+            if command_aliases.is_empty() {
+                println!("command name: {command_name} -- extension: {extension}");
+
+                commands.insert(
+                    command_name.to_string(),
+                    fs::read_to_string(format!("{}/{}", path, file_name))?,
+                );
+
+                continue;
+            }
+
+            for (command_name, command_code) in command_aliases {
+                commands.insert(command_name, command_code);
+            }
+        }
+
+        Ok(commands)
+    }
+}
+
+impl ModuleLoader for CommandsLoader {
+    fn load(&self, path: &str) -> hebi::Result<Cow<'static, str>> {
+        Ok(Cow::owned(
+            self.commands
+                .get(path)
+                .ok_or_else(|| hebi::error!("failed to load module {path}"))?
+                .clone(),
+        ))
     }
 }

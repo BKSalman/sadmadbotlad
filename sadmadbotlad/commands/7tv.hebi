@@ -1,0 +1,7 @@
+# TODO: concatenate args properly at the end
+args := ctx.args()
+
+if args.is_empty():
+    ws_sender.send("Correct usage: " + cmd_delim + "7tv <emote-query>")
+else:
+    ws_sender.send("https://7tv.app/emotes?query=" + args[0])

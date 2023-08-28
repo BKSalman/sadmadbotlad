@@ -1,0 +1,10 @@
+mods_only_message := ctx.message_metadata()["tags"].mods_only()
+if mods_only_message:
+    ws_sender.send(mods_only_message)
+else:
+    current_song := song_request_client.get_current_song()
+    if current_song:
+        mpv.unpause()
+        ws_sender.send("Playing: " + current_song.title())
+    else:
+        ws_sender.send("Queue is empty")

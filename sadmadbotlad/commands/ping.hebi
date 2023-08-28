@@ -1,0 +1,6 @@
+args := ctx.args()
+
+if args:
+    ws_sender.send("!pong " + args.join(" "))
+else:
+    ws_sender.send("!pong")

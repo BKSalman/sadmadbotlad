@@ -1,0 +1,6 @@
+sender := ctx.message_metadata()["tags"].get_sender()
+if ctx.args().is_empty():
+    ws_sender.send("Correct usage: " + cmd_delim + "sr <URL>")
+else:
+    response := song_request_client.sr(ctx.args().join(" "), sender)
+    ws_sender.send(response)

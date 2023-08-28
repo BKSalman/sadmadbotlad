@@ -1,7 +1,21 @@
+use reqwest::StatusCode;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::ApiInfo;
+
+#[derive(thiserror::Error, Debug)]
+pub enum DiscordError {
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
+
+    #[error("{request_name}:: {status} -- {message}")]
+    DiscorApiError {
+        request_name: String,
+        status: StatusCode,
+        message: String,
+    },
+}
 
 #[derive(Serialize)]
 struct Image {
@@ -41,7 +55,7 @@ pub async fn online_notification(
     game_name: &str,
     timestamp: i64,
     api_info: &ApiInfo,
-) -> Result<String, eyre::Report> {
+) -> Result<String, DiscordError> {
     let message = Message {
         content: String::from("<@&897124518374559794> Salman is streaming\n"),
         embeds: vec![Embed {
@@ -77,9 +91,17 @@ pub async fn online_notification(
         // .bearer_auth(format!("Bot {}", discord_token))
         .json(&message)
         .send()
-        .await?
-        .json::<Value>()
         .await?;
+
+    if res.status() != StatusCode::OK {
+        return Err(DiscordError::DiscorApiError {
+            request_name: String::from("online_notification"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        });
+    }
+
+    let res = res.json::<Value>().await?;
 
     Ok(res["id"].as_str().expect("message id").to_string())
 }
@@ -89,7 +111,7 @@ pub async fn offline_notification(
     game_name: &str,
     api_info: &ApiInfo,
     message_id: &str,
-) -> eyre::Result<()> {
+) -> Result<(), DiscordError> {
     let timestamp = chrono::offset::Local::now().timestamp();
 
     let message = Message {
@@ -121,16 +143,22 @@ pub async fn offline_notification(
 
     let http_client = reqwest::Client::new();
 
-    http_client
+    let res = http_client
         .patch(format!(
             "https://discordapp.com/api/channels/575540932028530699/messages/{message_id}"
         ))
         .header("authorization", format!("Bot {}", api_info.discord_token))
         .json(&message)
         .send()
-        .await?
-        .text()
         .await?;
+
+    if res.status() != StatusCode::OK {
+        return Err(DiscordError::DiscorApiError {
+            request_name: String::from("offline_notification"),
+            status: res.status(),
+            message: res.text().await.expect("response text"),
+        });
+    }
 
     Ok(())
 }

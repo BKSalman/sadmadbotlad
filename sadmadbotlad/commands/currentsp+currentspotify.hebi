@@ -1,0 +1,3 @@
+message = spotify_client.get_current_song()
+
+ws_sender.send(message)
