@@ -176,7 +176,6 @@ async fn read(
         )
         .await?;
 
-        // TODO: move to separate task
         tokio::spawn(async move {
             while let Some(message) = irc_receiver.recv().await {
                 ws_sender.send(message).await?;
@@ -217,6 +216,10 @@ async fn read(
 
                     let locked_commands = commands.lock().await;
 
+                    if &command.to_lowercase()[1..] == "reconnect" {
+                        continue 'restart;
+                    }
+
                     if let Some(hebi_code) = locked_commands.get(&command.to_lowercase()[1..]) {
                         vm.global().set(
                             vm.new_string("ctx"),
@@ -251,28 +254,6 @@ async fn read(
                     }
 
                     // match &command.to_lowercase()[1..] {
-                    //     "ping" | "وكز" => {
-                    //         if command.is_ascii() {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&format!(
-                    //                     "{}pong",
-                    //                     APP.config.cmd_delim
-                    //                 ))))
-                    //                 .await?;
-                    //         } else {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&format!(
-                    //                     "{}يكز",
-                    //                     APP.config.cmd_delim
-                    //                 ))))
-                    //                 .await?;
-                    //         }
-                    //     }
-                    //     "db" => {
-                    //         let events = store.get_events().await?;
-
-                    //         println!("{events:#?}");
-                    //     }
                     //     "voteskip" | "تصويت-تخطي" => {
                     //         // TODO: figure out how to make every vote reset the timer (timeout??)
 
@@ -331,69 +312,6 @@ async fn read(
                     //                 .await?;
                     //         }
                     //     }
-                    //     "currentspotify" | "currentsp" => {
-                    //         let cmd = process::Command::new("playerctl")
-                    //             .args([
-                    //                 "--player=spotify",
-                    //                 "metadata",
-                    //                 "--format",
-                    //                 "{{title}} - {{artist}}",
-                    //             ])
-                    //             .output()?;
-                    //         let output = String::from_utf8(cmd.stdout)?;
-
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&format!(
-                    //                 "Current Spotify song: {}",
-                    //                 output
-                    //             ))))
-                    //             .await?;
-                    //     }
-                    //     "volume" | "v" => {
-                    //         if args.is_empty() {
-                    //             let Ok(volume) = mpv.get_property::<i64>("volume") else {
-                    //                             println!("volume error");
-                    //                             ws_sender.send(Message::Text(to_irc_message("No volume"))).await?;
-                    //                             return Ok(());
-                    //                         };
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&format!(
-                    //                     "Volume: {}",
-                    //                     volume
-                    //                 ))))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender.send(Message::Text(message)).await?;
-                    //             continue;
-                    //         }
-
-                    //         let Ok(volume) = args.parse::<i64>() else {
-                    //             let e = String::from("Provide number");
-                    //             ws_sender.send(Message::Text(e)).await?;
-                    //             continue;
-                    //         };
-
-                    //         if volume > 100 {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message("Max volume is 100")))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         if let Err(e) = mpv.set_property("volume", volume) {
-                    //             println!("{e}");
-                    //         }
-
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&format!(
-                    //                 "Volume set to {}",
-                    //                 volume
-                    //             ))))
-                    //             .await?;
-                    //     }
                     //     "play" | "إبدأ" | "ابدأ" | "ابدا" | "بدء" => {
                     //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
@@ -447,40 +365,6 @@ async fn read(
                     //             println!("no script");
                     //         }
                     //     }
-                    //     "stop" | "قف" | "وقف" => {
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         let (send, recv) = oneshot::channel();
-
-                    //         queue_sender.send(QueueMessages::GetCurrentSong(send))?;
-
-                    //         let Ok(current_song) = recv.await else {
-                    //         return Err(eyre::eyre!("Could not get current song"));
-                    //     };
-
-                    //         if let Some(song) = current_song {
-                    //             if let Err(e) = mpv.pause() {
-                    //                 println!("{e}");
-                    //                 continue;
-                    //             }
-
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&format!(
-                    //                     "Stopped playing {}, !play to resume",
-                    //                     song.title
-                    //                 ))))
-                    //                 .await?;
-                    //         } else {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message("Queue is empty")))
-                    //                 .await?;
-                    //         }
-                    //     }
                     //     "stopspotify" | "stopsp" => {
                     //         if let Some(message) = parsed_msg.tags.mods_only()? {
                     //             ws_sender
@@ -499,111 +383,6 @@ async fn read(
 
                     //         ws_sender
                     //             .send(Message::Text(to_irc_message("Stopped playing spotify")))
-                    //             .await?;
-                    //     }
-                    //     "قوانين" => {
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         for rule in RULES.lines() {
-                    //             ws_sender.send(Message::Text(to_irc_message(rule))).await?;
-                    //         }
-                    //     }
-                    //     "title" | "عنوان" => {
-                    //         if args.is_empty() {
-                    //             let title = get_title(token_sender.clone()).await?;
-
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&format!(
-                    //                     "Current stream title: {}",
-                    //                     title
-                    //                 ))))
-                    //                 .await?;
-
-                    //             continue;
-                    //         }
-
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         set_title(args, token_sender.clone()).await?;
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&format!(
-                    //                 "Set stream title to: {}",
-                    //                 args
-                    //             ))))
-                    //             .await?;
-                    //     }
-                    //     "warranty" | "تأمين" => {
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(WARRANTY)))
-                    //             .await?;
-                    //         continue;
-                    //     }
-                    //     "rustwarranty" | "!rwarranty" | "تأمين-صدأ" => {
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(RUST_WARRANTY)))
-                    //             .await?;
-                    //         continue;
-                    //     }
-                    //     "workingon" | "wo" => {
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         fs::write(
-                    //             String::from("workingon.txt"),
-                    //             format!("Currently: {}", args),
-                    //         )?;
-
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&format!(
-                    //                 "Updated current working on to \"{}\"",
-                    //                 args
-                    //             ))))
-                    //             .await?;
-                    //     }
-                    //     "pixelperfect" | "pp" => {
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message("image_res.rect")))
-                    //             .await?;
-                    //     }
-                    //     "discord" | "disc" => {
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message("https://discord.gg/qs4SGUt")))
-                    //             .await?;
-                    //     }
-                    //     "nerd" => {
-                    //         if let Ok(reply) = parsed_msg.tags.get_reply() {
-                    //             let message = format!("Nerd \"{}\"", reply);
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         ws_sender
-                    //             .send(Message::Text(String::from(
-                    //                 "Reply to a message to use this command",
-                    //             )))
-                    //             .await?;
-                    //     }
-                    //     "7tv" => {
-                    //         ws_sender
-                    //             .send(Message::Text(to_irc_message(&format!(
-                    //                 "https://7tv.app/emotes?query={args}"
-                    //             ))))
                     //             .await?;
                     //     }
                     //     "hard" => {
@@ -638,58 +417,17 @@ async fn read(
                     //             ))))
                     //             .await?;
                     //     }
-                    //     "test" => {
-                    //         if let Some(message) = parsed_msg.tags.mods_only()? {
-                    //             ws_sender
-                    //                 .send(Message::Text(to_irc_message(&message)))
-                    //                 .await?;
-                    //             continue;
-                    //         }
-
-                    //         let alert = match args.to_lowercase().as_str() {
-                    //             "raid" => Alert::raid_test(),
-                    //             "follow" => Alert::follow_test(),
-                    //             "sub" => Alert::sub_test(),
-                    //             "resub" => Alert::resub_test(),
-                    //             "giftsub" => Alert::giftsub_test(),
-                    //             "asd" => Alert::asd_test(),
-                    //             _ => {
-                    //                 println!("no args provided");
-                    //                 Alert {
-                    //                     new: true,
-                    //                     r#type: AlertEventType::Raid {
-                    //                         from: String::from("lmao"),
-                    //                         viewers: 9999,
-                    //                     },
-                    //                 }
-                    //             }
-                    //         };
-
-                    //         match alerts_sender.send(alert) {
-                    //             Ok(_) => {
-                    //                 ws_sender
-                    //                     .send(Message::Text(to_irc_message(&format!(
-                    //                         "Testing {} alert",
-                    //                         if args.is_empty() { "raid" } else { args }
-                    //                     ))))
-                    //                     .await?;
-                    //             }
-                    //             Err(e) => {
-                    //                 println!("frontend event failed:: {e:?}");
-                    //             }
-                    //         }
-                    //     }
                     //     _ => {}
                     // }
                 }
                 Ok(Message::Text(msg)) => {
-                    #[allow(clippy::if_same_then_else)]
                     if msg.contains("PING") {
                         irc_sender
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
                     } else if msg.contains("RECONNECT") {
-                        // TODO: reconnect
+                        // TODO: reconnect with url
+                        println!("reconnect with url");
                         continue 'restart;
                     } else {
                         // println!("{msg}");

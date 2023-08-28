@@ -155,7 +155,7 @@ impl Component for Activity {
                         "GiftSub" => {
                             let gifter = e["gifter"].as_str().expect("gifter").to_string();
 
-                            let total = e["message"].as_u64().expect("total");
+                            let total = e["total"].as_u64().expect("total");
 
                             let tier = e["tier"].as_str().expect("tier").to_string();
 

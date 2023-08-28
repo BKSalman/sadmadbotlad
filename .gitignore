@@ -5,3 +5,5 @@
 refresh_token.txt
 frontend/assets/
 frontend/dist/
+frontend/.direnv
+sadmadbotlad/.direnv

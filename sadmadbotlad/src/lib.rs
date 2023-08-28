@@ -2,7 +2,7 @@ use std::{collections::HashMap, convert::TryInto, error::Error, fs, io::Read, sy
 
 use clap::{command, Parser};
 use db::DatabaseError;
-use hebi::ModuleLoader;
+use hebi::prelude::*;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use song_requests::Queue;
@@ -480,8 +480,8 @@ impl CommandsLoader {
 }
 
 impl ModuleLoader for CommandsLoader {
-    fn load(&self, path: &str) -> hebi::Result<hebi::Cow<'static, str>> {
-        Ok(hebi::Cow::owned(
+    fn load(&self, path: &str) -> hebi::Result<Cow<'static, str>> {
+        Ok(Cow::owned(
             self.commands
                 .get(path)
                 .ok_or_else(|| hebi::error!("failed to load module {path}"))?

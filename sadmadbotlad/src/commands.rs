@@ -1,6 +1,6 @@
-use std::{fs, sync::Arc};
+use std::{fs, process, sync::Arc};
 
-use hebi::{Hebi, IntoValue, NativeModule, Scope, Str, This};
+use hebi::prelude::*;
 use libmpv::Mpv;
 use tokio::sync::{
     broadcast,
@@ -115,7 +115,7 @@ impl SongRequetsClient {
     async fn get_current_song<'a>(
         scope: Scope<'a>,
         this: This<'_, Self>,
-    ) -> hebi::Result<Option<hebi::Value<'a>>> {
+    ) -> hebi::Result<Option<Value<'a>>> {
         let (send, recv) = oneshot::channel();
 
         this.0
@@ -129,6 +129,24 @@ impl SongRequetsClient {
         let current_song = scope.new_instance(current_song)?;
 
         Ok(Some(current_song))
+    }
+}
+
+struct SpotifyClient;
+
+impl SpotifyClient {
+    fn get_current_song() -> hebi::Result<String> {
+        let cmd = process::Command::new("playerctl")
+            .args([
+                "--player=spotify",
+                "metadata",
+                "--format",
+                "{{title}} - {{artist}}",
+            ])
+            .output()
+            .map_err(hebi::Error::user)?;
+        let output = String::from_utf8(cmd.stdout).map_err(hebi::Error::user)?;
+        Ok(format!("Current Spotify song: {}", output))
     }
 }
 
@@ -198,7 +216,7 @@ pub struct Context {
 }
 
 impl Context {
-    fn args<'a>(scope: Scope<'a>, this: This<'_, Self>) -> hebi::Result<hebi::List<'a>> {
+    fn args<'a>(scope: Scope<'a>, this: This<'_, Self>) -> hebi::Result<List<'a>> {
         let args = scope.new_list(this.args.capacity());
         for arg in this.args.iter() {
             let arg = scope.new_string(arg);
@@ -227,10 +245,7 @@ impl Context {
         Ok(working_on)
     }
 
-    fn message_metadata<'a>(
-        scope: Scope<'a>,
-        this: This<'_, Self>,
-    ) -> hebi::Result<hebi::Table<'a>> {
+    fn message_metadata<'a>(scope: Scope<'a>, this: This<'_, Self>) -> hebi::Result<Table<'a>> {
         let metadata = scope.new_table(
             this.message_metadata.tags.capacity() + this.message_metadata.message.capacity(),
         );
@@ -307,6 +322,11 @@ pub async fn run_hebi(
 
     vm.global()
         .set(vm.new_string("mpv"), vm.new_instance(MpvClient(mpv))?);
+
+    vm.global().set(
+        vm.new_string("spotify_client"),
+        vm.new_instance(SpotifyClient)?,
+    );
 
     vm.eval_async(
         r#"
@@ -389,6 +409,13 @@ fn get_module() -> NativeModule {
                 .method("url", |_scope, this| this.url.clone())
                 .method("user", |_scope, this| this.user.clone())
                 .method("id", |_scope, this| this.id.clone())
+                .finish()
+        })
+        .class::<SpotifyClient>("SpotifyClient", |class| {
+            class
+                .method("get_current_song", |_scope, _this| {
+                    SpotifyClient::get_current_song()
+                })
                 .finish()
         })
         .finish()
