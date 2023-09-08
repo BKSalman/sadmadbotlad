@@ -1,6 +1,5 @@
 use std::{collections::HashMap, convert::TryInto, error::Error, fs, io::Read, sync::Arc};
 
-use clap::{command, Parser};
 use db::DatabaseError;
 use hebi::prelude::*;
 use lazy_static::lazy_static;
@@ -33,14 +32,10 @@ pub async fn flatten<T>(handle: JoinHandle<Result<T, MainError>>) -> Result<T, M
     }
 }
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[derive(Debug)]
 pub struct Config {
-    #[arg(short, long, default_value_t = false)]
     pub manual: bool,
-    #[arg(short, long, default_value_t = '!')]
     pub cmd_delim: char,
-    #[arg(short, long, default_value_t = 3000)]
     pub port: u16,
 }
 
@@ -51,8 +46,18 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let flags = xflags::parse_or_exit! {
+            optional -cd,--cmd-delim cmd_delim: char
+            optional -p,--port port: u16
+            optional -m,--manual
+        };
+
         Self {
-            config: Config::parse(),
+            config: Config {
+                manual: flags.manual,
+                cmd_delim: flags.cmd_delim.unwrap_or('!'),
+                port: flags.port.unwrap_or(3000),
+            },
         }
     }
 }

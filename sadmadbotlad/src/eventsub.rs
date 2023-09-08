@@ -81,7 +81,7 @@ async fn read(
         {
             let irc_sender = irc_sender.clone();
             connections_handlers.push(new_connection(
-                String::from("wss://eventsub.wss.twitch.tv/ws"),
+                "wss://eventsub.wss.twitch.tv/ws",
                 irc_sender,
             ));
         }
@@ -321,7 +321,6 @@ async fn read(
                                 json_lossy["payload"]["reconnect_url"].as_str()
                             {
                                 {
-                                    let reconnect_url = reconnect_url.to_string();
                                     let irc_sender = irc_sender.clone();
                                     connections_handlers
                                         .push(new_connection(reconnect_url, irc_sender));
@@ -339,10 +338,11 @@ async fn read(
 }
 
 fn new_connection(
-    connection_url: String,
+    connection_url: &str,
     irc_sender: mpsc::UnboundedSender<Message>,
 ) -> tokio::task::JoinHandle<Result<(), EventsubError>> {
     println!("new connection");
+    let connection_url = connection_url.to_string();
     tokio::spawn(async move {
         let (mut sender, mut receiver) =
             connect_async(Url::parse(&connection_url).expect("Url parsed"))
@@ -353,7 +353,7 @@ fn new_connection(
         while let Some(msg) = receiver.next().await {
             match msg {
                 Ok(Message::Ping(ping)) => {
-                    // println!("eventsub:: ping");
+                    // println!("eventsub:: ping {ping:?}");
                     sender.send(Message::Pong(ping)).await?;
                 }
                 Ok(msg) => irc_sender.send(msg)?,
@@ -476,8 +476,8 @@ async fn stream_online_event(
     token_sender.send(TwitchTokenMessages::GetToken(send))?;
 
     let Ok(twitch_api_info) = recv.await else {
-            return Err(EventsubError::TwitchError(TwitchError::TokenError));
-        };
+        return Err(EventsubError::TwitchError(TwitchError::TokenError));
+    };
 
     let res = http_client
         .get("https://api.twitch.tv/helix/streams?user_login=sadmadladsalman")
@@ -732,9 +732,10 @@ async fn follow_eventsub(
         .header("Client-Id", api_info.client_id.clone())
         .json(&json!({
             "type": "channel.follow",
-            "version": "1",
+            "version": "2",
             "condition": {
-                "broadcaster_user_id": "143306668" //110644052
+                "broadcaster_user_id": "143306668", //110644052
+                "moderator_user_id": "143306668"
             },
             "transport": {
                 "method": "websocket",
