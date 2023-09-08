@@ -4,20 +4,25 @@
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem
       (system: let
-        rustOverlay = builtins.fetchTarball {
-          url = "https://github.com/oxalica/rust-overlay/archive/master.tar.gz";
-          sha256 = "04csw82q0y46y3bcpk645cfkid95q6ghnacw8b9x3lmwppwab686";
-        };
-
-        pkgs = import nixpkgs { inherit system; overlays = [ (import rustOverlay) ]; };
+        pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
+        libPath = pkgs.lib.makeLibraryPath [
+            pkgs.openssl
+            pkgs.libiconv
+            pkgs.pkg-config
+            pkgs.rocksdb
+            pkgs.dbus
+            pkgs.mpv
+        ];
       in
         {
-          devShell = pkgs.mkShell rec {
+          devShell = pkgs.mkShell.override { stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv; } rec {
+            NIX_CFLAGS_LINK = "-fuse-ld=mold";
             packages = with pkgs; [
               (rust-bin.stable.latest.default.override {
                 extensions = [ "rust-src" "rust-analyzer" ];
@@ -31,22 +36,19 @@
             ];
 
             buildInputs = with pkgs; [
+                mold
+                clang
                 dbus
                 mpv
-                clang
-                llvmPackages.libclang
-                llvmPackages.libcxxClang
-                llvmPackages.bintools
-                openssl
-                libiconv
-                pkg-config
-                rocksdb
+                # llvmPackages.libclang
+                # llvmPackages.libcxxClang
+                # llvmPackages.bintools
             ];
-              LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+              # LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
               ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
               ROCKSDB_STATIC = "true";
-              LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath buildInputs}";
+              LD_LIBRARY_PATH = "${libPath}";
           };
       });
 }
