@@ -64,7 +64,7 @@
         frontendArtifacts = frontendCraneLib.buildDepsOnly ({
           pname = "frontend";
 
-          src = frontendCraneLib.cleanCargoSource (frontendCraneLib.path ../frontend);
+          src = frontendCraneLib.cleanCargoSource (frontendCraneLib.path ./frontend);
           inherit buildInputs nativeBuildInputs;
           doCheck = false;
         });
@@ -78,7 +78,7 @@
               LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               LD_LIBRARY_PATH = "${libPath}";
 
-              src = craneLib.path ./.;
+              src = craneLib.path ./sadmadbotlad;
 
               inherit buildInputs nativeBuildInputs ;
 
@@ -91,7 +91,7 @@
 
             frontend = with pkgs; frontendCraneLib.buildTrunkPackage {
               src = lib.cleanSourceWith {
-                  src = ../frontend;
+                  src = ./frontend;
                   filter = path: type:
                     (lib.hasSuffix "\.html" path) ||
                     (lib.hasSuffix "\.css" path) ||
