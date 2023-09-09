@@ -18,10 +18,11 @@ pub async fn ws_server(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
-    println!("Starting WebSocket Server");
+    let port = APP.config.port + 1000;
+    println!("Starting WebSocket Server on port {port}");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, APP.config.port + 1000);
+    let address = SocketAddrV4::new(ip_address, port);
     let listener = TcpListener::bind(address).await?;
 
     while let Ok((stream, _)) = listener.accept().await {

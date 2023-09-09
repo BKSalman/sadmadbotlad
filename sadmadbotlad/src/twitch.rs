@@ -294,8 +294,11 @@ pub async fn access_token(api_info: Arc<ApiInfo>) -> eyre::Result<()> {
     let auth_link = std::fs::read_to_string("auth_link.txt")?;
     open::that(auth_link)?;
 
+    let port = 4040;
+
+    println!("Auth service on port {port}");
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, 4040);
+    let address = SocketAddrV4::new(ip_address, port);
     let listener = TcpListener::bind(address).await?;
 
     let Ok((stream, _)) = listener.accept().await else {

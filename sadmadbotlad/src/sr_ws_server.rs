@@ -14,7 +14,7 @@ use crate::{song_requests::QueueMessages, APP};
 pub async fn sr_ws_server(
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
 ) -> Result<(), eyre::Report> {
-    println!("Starting Sr WebSocket Server");
+    println!("Starting Sr WebSocket Server on port {}", APP.config.port);
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
     let address = SocketAddrV4::new(ip_address, APP.config.port);
