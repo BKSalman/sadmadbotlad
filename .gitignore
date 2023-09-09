@@ -7,3 +7,6 @@ frontend/dist/
 frontend/.direnv
 sadmadbotlad/.direnv
 sadmadbotlad/result
+.direnv
+frontend/server/target
+frontend/server/result

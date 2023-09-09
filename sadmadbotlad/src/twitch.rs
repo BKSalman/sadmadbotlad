@@ -1,10 +1,10 @@
 use std::{
     fs,
     net::{Ipv4Addr, SocketAddrV4},
+    sync::Arc,
 };
 
 use chrono::{Duration, Local};
-use eyre::Context;
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use tokio::{
 };
 use tokio_tungstenite::{accept_async, tungstenite};
 
-use crate::ApiInfo;
+use crate::{ApiInfo, APP};
 
 #[derive(thiserror::Error, Debug)]
 pub enum TwitchError {
@@ -162,19 +162,17 @@ pub async fn get_title(
     Ok(res["data"][0]["title"].as_str().unwrap().to_string())
 }
 
-pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> {
-    let config_str = fs::read_to_string("config.toml").wrap_err_with(|| "no config file")?;
-
-    let mut configs =
-        toml::from_str::<ApiInfo>(&config_str).wrap_err_with(|| "couldn't parse configs")?;
-
+pub async fn get_access_token_from_code(
+    code: &str,
+    api_info: Arc<ApiInfo>,
+) -> Result<(), eyre::Report> {
     let http_client = Client::new();
 
     let res = http_client
         .post("https://id.twitch.tv/oauth2/token")
         .form(&json!({
-            "client_id": configs.twitch.client_id,
-            "client_secret": configs.twitch.client_secret,
+            "client_id": api_info.twitch.client_id,
+            "client_secret": api_info.twitch.client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": "http://localhost:8080/code",
@@ -194,12 +192,14 @@ pub async fn get_access_token_from_code(code: &str) -> Result<(), eyre::Report> 
 
     println!("{:#?}\r", res["scope"].as_array().unwrap());
 
-    configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
-    configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
+    let mut api_info = (*api_info).clone();
+
+    api_info.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+    api_info.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
     fs::write(
-        "config.toml",
-        toml::to_string(&configs).expect("parse api info struct to string"),
+        &APP.config.config_path,
+        toml::to_string(&api_info).expect("parse api info struct to string"),
     )?;
 
     Ok(())
@@ -290,7 +290,7 @@ pub async fn run_ads(
     Ok(res.data[0].retry_after)
 }
 
-pub async fn access_token() -> eyre::Result<()> {
+pub async fn access_token(api_info: Arc<ApiInfo>) -> eyre::Result<()> {
     let auth_link = std::fs::read_to_string("auth_link.txt")?;
     open::that(auth_link)?;
 
@@ -299,7 +299,7 @@ pub async fn access_token() -> eyre::Result<()> {
     let listener = TcpListener::bind(address).await?;
 
     let Ok((stream, _)) = listener.accept().await else {
-        return Err(eyre::eyre!("Code Websocket failed"))
+        return Err(eyre::eyre!("Code Websocket failed"));
     };
 
     let peer = stream
@@ -313,7 +313,7 @@ pub async fn access_token() -> eyre::Result<()> {
     if let Some(msg) = ws.next().await {
         match msg {
             Ok(tungstenite::Message::Text(code)) => {
-                get_access_token_from_code(&code).await?;
+                get_access_token_from_code(&code, api_info).await?;
             }
             _ => println!("something wierd happened"),
         }
@@ -427,7 +427,7 @@ impl TwitchToken {
 
         let res = res.json::<Value>().await?;
 
-        let config_str = fs::read_to_string("config.toml")?;
+        let config_str = fs::read_to_string(&APP.config.config_path)?;
 
         let mut configs = toml::from_str::<ApiInfo>(&config_str)?;
 
@@ -435,7 +435,7 @@ impl TwitchToken {
         configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
         fs::write(
-            "config.toml",
+            &APP.config.config_path,
             toml::to_string(&configs).expect("parse api info struct to string"),
         )?;
 

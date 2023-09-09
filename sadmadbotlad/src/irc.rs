@@ -6,7 +6,7 @@ use crate::{
     flatten,
     song_requests::{play_song, setup_mpv, QueueMessages, SongRequest},
     twitch::{TwitchError, TwitchTokenMessages},
-    Alert, CommandsError, CommandsLoader, MainError, APP, COMMANDS_PATH,
+    Alert, CommandsError, CommandsLoader, MainError, APP,
 };
 use futures::FutureExt;
 use futures_util::{stream::SplitSink, SinkExt, StreamExt, TryFutureExt};
@@ -125,7 +125,7 @@ async fn read(
 ) -> Result<(), IrcError> {
     // let voters = Arc::new(RwLock::new(HashSet::new()));
 
-    let commands = CommandsLoader::load_commands(COMMANDS_PATH)?;
+    let commands = CommandsLoader::load_commands(&APP.config.commands_path)?;
 
     let commands = Arc::new(tokio::sync::Mutex::new(commands));
 
@@ -146,7 +146,7 @@ async fn read(
             let event = watcher.unwrap();
 
             if event.kind.is_modify() {
-                match CommandsLoader::load_commands(COMMANDS_PATH) {
+                match CommandsLoader::load_commands(&APP.config.commands_path) {
                     Ok(new_commands) => *cloned_commands.lock().await = new_commands,
                     Err(error) => println!("Error reloading commands: {:#?}", error),
                 }
@@ -154,7 +154,10 @@ async fn read(
         }
     });
 
-    watcher.watch(Path::new(COMMANDS_PATH), notify::RecursiveMode::Recursive)?;
+    watcher.watch(
+        Path::new(&APP.config.commands_path),
+        notify::RecursiveMode::Recursive,
+    )?;
 
     'restart: loop {
         println!("irc 'restart loop");

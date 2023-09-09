@@ -13,17 +13,17 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
+    let api_info = Arc::new(ApiInfo::new().expect("Api info failed"));
+
     if APP.config.manual {
-        access_token().await?;
+        access_token(api_info.clone()).await?;
     }
 
-    run().await?;
+    run(api_info).await?;
     Ok(())
 }
 
-async fn run() -> Result<(), MainError> {
-    let api_info = Arc::new(ApiInfo::new().await.expect("Api info failed"));
-
+async fn run(api_info: Arc<ApiInfo>) -> Result<(), MainError> {
     let (token_sender, token_receiver) = mpsc::unbounded_channel::<TwitchTokenMessages>();
 
     let twitch = TwitchToken::new(api_info.twitch.clone(), token_receiver);

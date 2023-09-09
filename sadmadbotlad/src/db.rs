@@ -6,7 +6,7 @@ use surrealdb::{
     Datastore, Session,
 };
 
-use crate::{collection, AlertEventType, TakeVal, Wrapper};
+use crate::{collection, AlertEventType, TakeVal, Wrapper, APP};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DatabaseError {
@@ -51,7 +51,7 @@ pub struct Store {
 
 impl Store {
     pub async fn new() -> Result<Self, DatabaseError> {
-        let ds = Datastore::new("file://database.db").await?;
+        let ds = Datastore::new(&format!("file://{}", APP.config.database_path)).await?;
         let session = Session::for_db("activity_feed", "events");
 
         Ok(Self { ds, session })

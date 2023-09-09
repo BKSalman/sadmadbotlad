@@ -1,4 +1,6 @@
-use std::{collections::HashMap, convert::TryInto, error::Error, fs, io::Read, sync::Arc};
+use std::{
+    collections::HashMap, convert::TryInto, error::Error, fs, io::Read, path::PathBuf, sync::Arc,
+};
 
 use db::DatabaseError;
 use hebi::prelude::*;
@@ -20,8 +22,6 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
-const COMMANDS_PATH: &str = "./commands";
-
 pub type MainError = Box<dyn Error + Send + Sync>;
 
 pub async fn flatten<T>(handle: JoinHandle<Result<T, MainError>>) -> Result<T, MainError> {
@@ -34,6 +34,9 @@ pub async fn flatten<T>(handle: JoinHandle<Result<T, MainError>>) -> Result<T, M
 
 #[derive(Debug)]
 pub struct Config {
+    pub database_path: String,
+    pub config_path: PathBuf,
+    pub commands_path: PathBuf,
     pub manual: bool,
     pub cmd_delim: char,
     pub port: u16,
@@ -50,10 +53,18 @@ impl App {
             optional -cd,--cmd-delim cmd_delim: char
             optional -p,--port port: u16
             optional -m,--manual
+            optional -c, --config-path config_path: PathBuf
+            optional -co, --commands-path commands_path: PathBuf
+            optional -db, --database-path database_path: String
         };
+
+        println!("{:?}", flags.config_path);
 
         Self {
             config: Config {
+                database_path: flags.database_path.unwrap_or("database.db".into()),
+                config_path: flags.config_path.unwrap_or("./config.toml".into()),
+                commands_path: flags.commands_path.unwrap_or("./commands".into()),
                 manual: flags.manual,
                 cmd_delim: flags.cmd_delim.unwrap_or('!'),
                 port: flags.port.unwrap_or(3000),
@@ -261,7 +272,7 @@ pub enum SrEvent {
     QueueResponse(Arc<tokio::sync::RwLock<Queue>>),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiInfo {
     pub google_api_key: String,
     #[serde(flatten)]
@@ -271,8 +282,8 @@ pub struct ApiInfo {
 }
 
 impl ApiInfo {
-    pub async fn new() -> eyre::Result<Self> {
-        let Ok(mut config) = fs::File::open("config.toml") else {
+    pub fn new() -> eyre::Result<Self> {
+        let Ok(mut config) = fs::File::open(&APP.config.config_path) else {
             panic!("no config file");
         };
 
@@ -434,7 +445,7 @@ impl CommandsLoader {
         }
     }
 
-    pub fn load_commands(path: &str) -> Result<HashMap<String, String>, CommandsError> {
+    pub fn load_commands(path: &PathBuf) -> Result<HashMap<String, String>, CommandsError> {
         println!("loading commands");
 
         let mut commands = HashMap::new();
@@ -459,7 +470,7 @@ impl CommandsLoader {
                     // println!("command name: {name} -- extension: {extension}");
                     Ok::<_, std::io::Error>((
                         name.to_string(),
-                        fs::read_to_string(format!("{}/{}", path, file_name))?,
+                        fs::read_to_string(path.join(file_name.clone()))?,
                     ))
                 })
                 .collect();
@@ -469,7 +480,7 @@ impl CommandsLoader {
 
                 commands.insert(
                     command_name.to_string(),
-                    fs::read_to_string(format!("{}/{}", path, file_name))?,
+                    fs::read_to_string(path.join(file_name))?,
                 );
 
                 continue;

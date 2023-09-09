@@ -11,7 +11,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, crane, ... }:
+  outputs = { nixpkgs, flake-utils, rust-overlay, crane, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
@@ -49,7 +49,7 @@
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
           pname = "sadmadbotlad";
-          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          src = craneLib.cleanCargoSource (craneLib.path ./sadmadbotlad);
           inherit buildInputs nativeBuildInputs;
         });
 
@@ -67,6 +67,29 @@
           src = frontendCraneLib.cleanCargoSource (frontendCraneLib.path ./frontend);
           inherit buildInputs nativeBuildInputs;
           doCheck = false;
+        });
+
+        frontendPackage = with pkgs; frontendCraneLib.buildTrunkPackage {
+              src = lib.cleanSourceWith {
+                  src = ./frontend;
+                  filter = path: type:
+                    (lib.hasSuffix "\.html" path) ||
+                    (lib.hasSuffix "\.css" path) ||
+                    (lib.hasInfix "assets/" path) ||
+                    # Default filter from crane (allow .rs files)
+                    (frontendCraneLib.filterCargoSources path type)
+                  ;
+                };
+
+              inherit buildInputs nativeBuildInputs;
+
+              cargoArtifacts = frontendArtifacts;
+            };
+
+        serverArtifacts = craneLib.buildDepsOnly ({
+          pname = "server";
+          src = craneLib.cleanCargoSource (craneLib.path ./frontend/server);
+          inherit buildInputs nativeBuildInputs;
         });
       in
         {
@@ -86,29 +109,25 @@
 
               postInstall = ''
                 wrapProgram $out/bin/sadmadbotlad --suffix LD_LIBRARY_PATH : ${libPath}
+
+                mkdir -p $out/share
+                cp -r commands $out/share
               '';
             };
 
-            frontend = with pkgs; frontendCraneLib.buildTrunkPackage {
-              src = lib.cleanSourceWith {
-                  src = ./frontend;
-                  filter = path: type:
-                    (lib.hasSuffix "\.html" path) ||
-                    (lib.hasSuffix "\.css" path) ||
-                    (lib.hasInfix "assets/" path) ||
-                    # Default filter from crane (allow .rs files)
-                    (frontendCraneLib.filterCargoSources path type)
-                  ;
-                };
+            frontend = frontendPackage;
 
-              inherit buildInputs nativeBuildInputs;
+            server = craneLib.buildPackage {
+              src = craneLib.path ./frontend/server;
 
-              cargoArtifacts = frontendArtifacts;
+              inherit buildInputs nativeBuildInputs ;
+
+              cargoArtifacts = serverArtifacts;
             };
 
             default = sadmadbotlad;
           };
-          
+
           devShell = pkgs.mkShell.override { stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv; } {
             inherit buildInputs nativeBuildInputs;
             NIX_CFLAGS_LINK = "-fuse-ld=mold";
