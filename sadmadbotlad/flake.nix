@@ -5,23 +5,112 @@
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, ... }:
-    flake-utils.lib.eachDefaultSystem
-      (system: let
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, crane, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
         pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
-        libPath = pkgs.lib.makeLibraryPath [
-            pkgs.openssl
-            pkgs.libiconv
-            pkgs.pkg-config
-            pkgs.rocksdb
-            pkgs.dbus
-            pkgs.mpv
+
+        libPath = with pkgs; lib.makeLibraryPath [
+            openssl
+            libiconv
+            pkg-config
+            rocksdb
+            dbus
+            mpv
         ];
+
+        craneLib = crane.lib.${system};
+
+        nativeBuildInputs = with pkgs; [
+            dbus
+            alsa-lib
+            llvmPackages.libclang
+            llvmPackages.libcxxClang
+            makeWrapper
+        ];
+
+        buildInputs = with pkgs; [
+            mold
+            clang
+            dbus
+            mpv
+        ];
+
+        sadmadbotladArtifacts = craneLib.buildDepsOnly ({
+          BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
+          ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
+          ROCKSDB_STATIC = "true";
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+
+          pname = "sadmadbotlad";
+          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          inherit buildInputs nativeBuildInputs;
+        });
+
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          targets = [ "wasm32-unknown-unknown" ];
+        };
+
+        frontendCraneLib = (craneLib.overrideToolchain rustToolchain).overrideScope' (final: prev: {
+                  # inherit (import nixpkgs-for-wasm-bindgen { inherit system; }) wasm-bindgen-cli;
+                });
+
+        frontendArtifacts = frontendCraneLib.buildDepsOnly ({
+          pname = "frontend";
+
+          src = frontendCraneLib.cleanCargoSource (frontendCraneLib.path ../frontend);
+          inherit buildInputs nativeBuildInputs;
+          doCheck = false;
+        });
       in
         {
-          devShell = pkgs.mkShell.override { stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv; } rec {
+          packages = rec {
+            sadmadbotlad = craneLib.buildPackage {
+              BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
+              ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
+              ROCKSDB_STATIC = "true";
+              LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+              LD_LIBRARY_PATH = "${libPath}";
+
+              src = craneLib.path ./.;
+
+              inherit buildInputs nativeBuildInputs ;
+
+              cargoArtifacts = sadmadbotladArtifacts;
+
+              postInstall = ''
+                wrapProgram $out/bin/sadmadbotlad --suffix LD_LIBRARY_PATH : ${libPath}
+              '';
+            };
+
+            frontend = with pkgs; frontendCraneLib.buildTrunkPackage {
+              src = lib.cleanSourceWith {
+                  src = ../frontend;
+                  filter = path: type:
+                    (lib.hasSuffix "\.html" path) ||
+                    (lib.hasSuffix "\.css" path) ||
+                    (lib.hasInfix "assets/" path) ||
+                    # Default filter from crane (allow .rs files)
+                    (frontendCraneLib.filterCargoSources path type)
+                  ;
+                };
+
+              inherit buildInputs nativeBuildInputs;
+
+              cargoArtifacts = frontendArtifacts;
+            };
+
+            default = sadmadbotlad;
+          };
+          
+          devShell = pkgs.mkShell.override { stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv; } {
+            inherit buildInputs nativeBuildInputs;
             NIX_CFLAGS_LINK = "-fuse-ld=mold";
             packages = with pkgs; [
               (rust-bin.stable.latest.default.override {
@@ -30,25 +119,10 @@
               })
             ];
             
-            nativebuildInputs = with pkgs; [
-                dbus
-                alsa-lib
-            ];
-
-            buildInputs = with pkgs; [
-                mold
-                clang
-                dbus
-                mpv
-                # llvmPackages.libclang
-                # llvmPackages.libcxxClang
-                # llvmPackages.bintools
-            ];
-              # LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-              BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
-              ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
-              ROCKSDB_STATIC = "true";
-              LD_LIBRARY_PATH = "${libPath}";
+            BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
+            ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
+            ROCKSDB_STATIC = "true";
+            LD_LIBRARY_PATH = "${libPath}";
           };
       });
 }
