@@ -23,16 +23,18 @@ async fn main() {
         std::process::exit(1);
     };
 
-    let router = Router::new().nest_service(
-        "/",
-        get_service(ServeDir::new(&static_path).fallback(ServeFile::new(
-            PathBuf::from(static_path).join("index.html"),
-        )))
-        .handle_error(|error| async move {
-            tracing::error!(?error, "failed serving static file");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
-        .layer(TraceLayer::new_for_http()),
+    let router = Router::new().fallback_service(
+        Router::new().nest_service(
+            "/",
+            get_service(ServeDir::new(&static_path).fallback(ServeFile::new(
+                PathBuf::from(static_path).join("index.html"),
+            )))
+            .handle_error(|error| async move {
+                tracing::error!(?error, "failed serving static file");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })
+            .layer(TraceLayer::new_for_http()),
+        ),
     );
 
     let addr = SocketAddr::new(
