@@ -6,3 +6,4 @@ refresh_token.txt
 frontend/dist/
 frontend/.direnv
 sadmadbotlad/.direnv
+sadmadbotlad/result
