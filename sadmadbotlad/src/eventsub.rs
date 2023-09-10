@@ -72,7 +72,7 @@ async fn read(
     let mut connections_handlers = vec![];
 
     'restart: loop {
-        println!("'restart loop");
+        tracing::debug!("'restart loop");
 
         let mut discord_msg_id = String::new();
         let mut title = String::new();
@@ -97,13 +97,13 @@ async fn read(
                     //     }
                     // }
 
-                    eprintln!("websocket connection closed: {reason:#?}");
+                    tracing::error!("websocket connection closed: {reason:#?}");
                     continue 'restart;
                 }
                 msg => {
                     let msg = msg.to_string();
                     if msg.contains("connection unused") {
-                        println!("{msg}");
+                        tracing::error!("connection unused: {msg}");
                         return Err(EventsubError::ConnectionUnused);
                     }
 
@@ -116,7 +116,7 @@ async fn read(
 
                     match json_lossy["metadata"]["message_type"].as_str() {
                         // Some("session_reconnect") => {
-                        //     println!("Reconnecting eventsub");
+                        //     tracing::debug!("Reconnecting eventsub");
 
                         //     connection_url = session["reconnect_url"]
                         //         .as_str()
@@ -127,7 +127,7 @@ async fn read(
                             if let Some(_reconnect_url) =
                                 json_lossy["payload"]["session"]["reconnect_url"].as_str()
                             {
-                                println!("removing old connections");
+                                tracing::debug!("removing old connections");
 
                                 // abort all tokio tasks but the last one
                                 // to remove old connections
@@ -140,8 +140,7 @@ async fn read(
                                 connections_handlers.clear();
                                 connections_handlers.push(new_handler);
 
-                                // debugging
-                                println!(
+                                tracing::debug!(
                                     "connections after aborting: {}",
                                     connections_handlers.len()
                                 );
@@ -156,9 +155,9 @@ async fn read(
 
                                         subscribe(&token_sender, session_id).await?;
 
-                                        println!("Subscribed to eventsubs");
+                                        tracing::info!("Subscribed to eventsubs");
                                     }
-                                    _ => println!("status: {status:#?}"),
+                                    _ => tracing::debug!("status: {status:#?}"),
                                 }
                             }
                         }
@@ -166,7 +165,7 @@ async fn read(
                             if let Some(sub_type) =
                                 json_lossy["payload"]["subscription"]["type"].as_str()
                             {
-                                println!("got {:?} event", sub_type);
+                                tracing::debug!("got {:?} event", sub_type);
 
                                 match sub_type {
                                     "stream.online" => {
@@ -204,13 +203,13 @@ async fn read(
 
                                         let res = store.new_event(alert.clone()).await?;
 
-                                        println!("added {sub_type} event to db {res:#?}");
+                                        tracing::debug!("added {sub_type} event to db {res:#?}");
 
                                         if let Err(err) = alerts_sender.send(Alert {
                                             new: true,
                                             r#type: alert.clone(),
                                         }) {
-                                            eprintln!(
+                                            tracing::error!(
                                                 "failed to send alert: {alert:#?} -- {err:#?}"
                                             );
                                         }
@@ -231,7 +230,7 @@ async fn read(
 
                                         let res = store.new_event(alert.clone()).await?;
 
-                                        println!("added {sub_type} event to db {res:#?}");
+                                        tracing::debug!("added {sub_type} event to db {res:#?}");
 
                                         alerts_sender.send(Alert {
                                             new: true,
@@ -287,7 +286,7 @@ async fn read(
 
                                         let res = store.new_event(alert.clone()).await?;
 
-                                        println!("added {sub_type} event to db {res:#?}");
+                                        tracing::debug!("added {sub_type} event to db {res:#?}");
 
                                         alerts_sender.send(Alert {
                                             new: true,
@@ -310,7 +309,7 @@ async fn read(
                                             .expect("reward title")
                                             .to_string();
 
-                                        println!("{redeemer} redeemed: {reward_title}");
+                                        tracing::debug!("{redeemer} redeemed: {reward_title}");
                                     }
                                     _ => todo!(),
                                 }
@@ -341,7 +340,7 @@ fn new_connection(
     connection_url: &str,
     irc_sender: mpsc::UnboundedSender<Message>,
 ) -> tokio::task::JoinHandle<Result<(), EventsubError>> {
-    println!("new connection");
+    tracing::debug!("new connection");
     let connection_url = connection_url.to_string();
     tokio::spawn(async move {
         let (mut sender, mut receiver) =
@@ -353,12 +352,12 @@ fn new_connection(
         while let Some(msg) = receiver.next().await {
             match msg {
                 Ok(Message::Ping(ping)) => {
-                    // println!("eventsub:: ping {ping:?}");
+                    // tracing::debug!("eventsub:: ping {ping:?}");
                     sender.send(Message::Pong(ping)).await?;
                 }
                 Ok(msg) => irc_sender.send(msg)?,
                 Err(err) => {
-                    eprintln!("eventsub websocket error: {err}");
+                    tracing::error!("eventsub websocket error: {err}");
                 }
             }
         }
@@ -399,7 +398,7 @@ async fn channel_cheer_event(
 
     let res = store.new_event(alert.clone()).await?;
 
-    println!("added {alert:#?} event to db {res:#?}");
+    tracing::debug!("added {alert:#?} event to db {res:#?}");
 
     alerts_sender.send(Alert {
         new: true,
@@ -452,7 +451,7 @@ async fn channel_subscription_message_event(
 
     let res = store.new_event(alert.clone()).await?;
 
-    println!("added {:#?} event to db {res:#?}", alert);
+    tracing::debug!("added {:#?} event to db {res:#?}", alert);
 
     alerts_sender.send(Alert {
         new: true,
@@ -540,7 +539,7 @@ async fn channel_subscribe_event(
 
             let res = store.new_event(alert.clone()).await?;
 
-            println!("added {:#?} event to db {res:#?}", alert);
+            tracing::debug!("added {:#?} event to db {res:#?}", alert);
 
             alerts_sender.send(Alert {
                 new: true,
@@ -549,7 +548,7 @@ async fn channel_subscribe_event(
         }
         Some(false) => {
             let alert = AlertEventType::Subscribe { subscriber, tier };
-            println!("Sub event:: {alert:#?}");
+            tracing::info!("Sub event:: {alert:#?}");
 
             // this already gets sent as a sub message
             // I want to get events only when the subscriber

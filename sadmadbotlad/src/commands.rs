@@ -183,7 +183,7 @@ struct MpvClient(Arc<Mpv>);
 impl MpvClient {
     fn next(_scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<()> {
         if let Err(err) = this.0.playlist_next_force() {
-            eprintln!("Mpv Error: {:#?}", err);
+            tracing::error!("Mpv Error: {:#?}", err);
             return Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user);
         }
 
@@ -193,7 +193,7 @@ impl MpvClient {
         match this.0.get_property::<i64>("volume") {
             Ok(volume) => Ok(volume as i32),
             Err(err) => {
-                eprintln!("Mpv Error: {:#?}", err);
+                tracing::error!("Mpv Error: {:#?}", err);
                 Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user)
             }
         }
@@ -202,7 +202,7 @@ impl MpvClient {
         let volume = scope.param::<i32>(0)?;
 
         if let Err(err) = this.0.set_property("volume", volume as i64) {
-            eprintln!("Mpv Error: {:#?}", err);
+            tracing::error!("Mpv Error: {:#?}", err);
             return Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user);
         }
 
@@ -383,7 +383,7 @@ fn get_module() -> NativeModule {
                     this.0
                         .unpause()
                         .map_err(|err| {
-                            eprintln!("Mpv Error: {:#?}", err);
+                            tracing::error!("Mpv Error: {:#?}", err);
                             MpvClientError::MpvError(err.to_string())
                         })
                         .map_err(hebi::Error::user)?;
@@ -394,7 +394,7 @@ fn get_module() -> NativeModule {
                     this.0
                         .pause()
                         .map_err(|err| {
-                            eprintln!("Mpv Error: {:#?}", err);
+                            tracing::error!("Mpv Error: {:#?}", err);
                             MpvClientError::MpvError(err.to_string())
                         })
                         .map_err(hebi::Error::user)?;

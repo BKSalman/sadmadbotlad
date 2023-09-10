@@ -59,7 +59,7 @@ pub async fn video_info(
 ) -> Result<VideoInfo, eyre::Report> {
     let http_client = reqwest::Client::new();
 
-    println!("{video_query}");
+    tracing::debug!("youtube video query: {video_query}");
 
     let res = http_client
         .get(format!(

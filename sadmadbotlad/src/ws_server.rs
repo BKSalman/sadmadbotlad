@@ -19,7 +19,7 @@ pub async fn ws_server(
     store: Arc<Store>,
 ) -> Result<(), eyre::Report> {
     let port = APP.config.port + 1000;
-    println!("Starting WebSocket Server on port {port}");
+    tracing::info!("Starting WebSocket Server on port {port}");
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
     let address = SocketAddrV4::new(ip_address, port);
@@ -30,7 +30,7 @@ pub async fn ws_server(
             .peer_addr()
             .expect("connected streams should have a peer address");
 
-        println!("Peer address: {}", peer);
+        tracing::debug!("Peer address: {}", peer);
 
         tokio::spawn(accept_connection(
             alerts_sender.to_owned(),
@@ -50,7 +50,7 @@ async fn accept_connection(
     store: Arc<Store>,
 ) {
     if let Err(e) = handle_connection(alerts_sender, peer, stream, store).await {
-        println!("Error processing connection: {}", e)
+        tracing::error!("Error processing connection: {}", e)
     }
 }
 
@@ -95,13 +95,13 @@ async fn handle_connection(
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(Message::Close(msg)) => {
-                println!("{msg:?}");
+                tracing::debug!("close message: {msg:?}");
                 // ws_sender.lock().await.close().await?;
                 break;
             }
             Ok(Message::Text(msg)) => {
                 if msg.starts_with("db") {
-                    println!("db was requested ");
+                    tracing::debug!("db was requested ");
                     let events: Vec<Object> = store
                         .get_events()
                         .await?
@@ -123,19 +123,19 @@ async fn handle_connection(
                     continue;
                 }
 
-                println!("text message: {msg} - from client {peer}");
+                tracing::debug!("text message: {msg} - from client {peer}");
                 let alert = serde_json::from_str::<Alert>(&msg).expect("alert");
                 alerts_sender.send(alert).expect("send alert");
             }
             Ok(Message::Pong(_ping)) => {
-                // println!("Events Ws:: Pong {ping:?} - from client {peer}");
+                // tracing::debug!("Events Ws:: Pong {ping:?} - from client {peer}");
             }
             Ok(msg) => {
-                println!("message: {msg:?} - from client {peer}");
+                tracing::debug!("message: {msg:?} - from client {peer}");
                 // ws_sender.lock().await.send(msg).await?;
             }
             Err(e) => {
-                println!("client error: {e}");
+                tracing::error!("client error: {e}");
                 break;
             }
         }
@@ -143,7 +143,7 @@ async fn handle_connection(
 
     t_handle.abort();
     forever.abort();
-    println!("aborted");
+    tracing::debug!("aborted websocket thread");
 
     Ok(())
 }
@@ -154,12 +154,12 @@ async fn handle_front_end_events(
     _peer: SocketAddr,
 ) {
     while let Ok(msg) = front_end_event_receiver.recv().await {
-        println!("Sending Ws:: {msg:?}");
+        tracing::debug!("Sending Ws:: {msg:?}");
 
         let alert = serde_json::to_string(&msg).expect("alert");
 
         if let Err(e) = ws_sender.lock().await.send(Message::Text(alert)).await {
-            println!("{e}");
+            tracing::error!("{e}");
             break;
         }
     }

@@ -142,7 +142,7 @@ impl Store {
 
         res.result?;
 
-        println!("Deleted events table");
+        tracing::debug!("Deleted events table");
 
         Ok(())
     }
@@ -157,7 +157,7 @@ impl Store {
 
         let sql = format!("UPDATE events SET {} = NONE;", field_name);
         let res = self.ds.execute(&sql, &self.session, None, false).await?;
-        println!("{:#?}", res);
+        tracing::debug!("{:#?}", res);
 
         Ok(())
     }
@@ -165,7 +165,7 @@ impl Store {
     pub async fn capitalize_value(&self) -> Result<(), DatabaseError> {
         let sql = String::from(r#"UPDATE events SET type = "Raid" WHERE type = "raid" RETURN id;"#);
         let res = self.ds.execute(&sql, &self.session, None, false).await?;
-        println!("{:#?}", res);
+        tracing::error!("{:#?}", res);
 
         Ok(())
     }

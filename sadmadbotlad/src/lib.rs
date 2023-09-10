@@ -58,7 +58,7 @@ impl App {
             optional -db, --database-path database_path: String
         };
 
-        println!("{:?}", flags.config_path);
+        tracing::info!("flags: {:?}", flags);
 
         Self {
             config: Config {
@@ -89,7 +89,7 @@ pub fn install_eyre() -> eyre::Result<()> {
     eyre_hook.install()?;
 
     std::panic::set_hook(Box::new(move |pi| {
-        eprintln!("{pi}");
+        tracing::error!("{pi}");
     }));
     Ok(())
 }
@@ -446,7 +446,7 @@ impl CommandsLoader {
     }
 
     pub fn load_commands(path: &PathBuf) -> Result<HashMap<String, String>, CommandsError> {
-        println!("loading commands");
+        tracing::info!("loading commands");
 
         let mut commands = HashMap::new();
 
@@ -467,7 +467,7 @@ impl CommandsLoader {
 
             let command_aliases: Vec<(String, String)> = command_aliases
                 .flat_map(|name| {
-                    // println!("command name: {name} -- extension: {extension}");
+                    // tracing::info!("command name: {name} -- extension: {extension}");
                     Ok::<_, std::io::Error>((
                         name.to_string(),
                         fs::read_to_string(path.join(file_name.clone()))?,
@@ -476,7 +476,7 @@ impl CommandsLoader {
                 .collect();
 
             if command_aliases.is_empty() {
-                println!("command name: {command_name} -- extension: {extension}");
+                tracing::info!("command name: {command_name} -- extension: {extension}");
 
                 commands.insert(
                     command_name.to_string(),

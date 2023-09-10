@@ -65,7 +65,7 @@ pub async fn irc_connect(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     store: Arc<Store>,
 ) -> Result<(), IrcError> {
-    println!("Starting IRC");
+    tracing::info!("Starting IRC");
 
     let mpv = Arc::new(setup_mpv());
 
@@ -148,7 +148,7 @@ async fn read(
             if event.kind.is_modify() {
                 match CommandsLoader::load_commands(&APP.config.commands_path) {
                     Ok(new_commands) => *cloned_commands.lock().await = new_commands,
-                    Err(error) => println!("Error reloading commands: {:#?}", error),
+                    Err(error) => tracing::error!("Error reloading commands: {:#?}", error),
                 }
             }
         }
@@ -160,7 +160,7 @@ async fn read(
     )?;
 
     'restart: loop {
-        println!("irc 'restart loop");
+        tracing::debug!("irc 'restart loop");
 
         let (socket, _) = connect_async("wss://irc-ws.chat.twitch.tv:443").await?;
 
@@ -190,7 +190,7 @@ async fn read(
         while let Some(msg) = ws_receiver.next().await {
             match msg {
                 Ok(Message::Ping(ping)) => {
-                    println!("IRC WebSocket Ping {ping:?}");
+                    tracing::debug!("IRC WebSocket Ping {ping:?}");
                     irc_sender.send(Message::Pong(vec![])).await?;
                 }
                 Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
@@ -239,18 +239,19 @@ async fn read(
                         match result {
                             Ok(eval_result) => {
                                 if let Err(vm_error) = eval_result {
-                                    eprintln!(
+                                    tracing::error!(
                                         "command: {command} \n-- code: {hebi_code} \n-- globals: {:#?} \n-- error: {vm_error}",
                                         vm.global().entries().collect::<Vec<_>>()
                                     );
                                 }
                             }
                             Err(panic_err) => {
-                                eprintln!("hebi panicked!");
-                                eprintln!(
+                                tracing::error!("Hebi panicked!");
+                                tracing::error!(
                                     "command: {command} \n-- code: {hebi_code} \n-- globals: {:#?}",
                                     vm.global().entries().collect::<Vec<_>>()
                                 );
+                                tracing::error!("Hebi panicked!");
                                 std::panic::panic_any(panic_err);
                             }
                         }
@@ -268,13 +269,13 @@ async fn read(
                     //             t_handle = Some(tokio::spawn(async move {
                     //                 tokio::time::sleep(Duration::from_secs(20)).await;
                     //                 votersc.write().await.clear();
-                    //                 println!("reset counter");
+                    //                 tracing::debug!("reset counter");
                     //             }));
                     //         }
 
                     //         voters.write().await.insert(parsed_msg.sender);
 
-                    //         println!("{}", voters.read().await.len());
+                    //         tracing::debug!("{}", voters.read().await.len());
 
                     //         ws_sender
                     //             .send(Message::Text(to_irc_message(&format!(
@@ -333,7 +334,7 @@ async fn read(
 
                     //         if let Some(song) = current_song {
                     //             if let Err(e) = mpv.unpause() {
-                    //                 println!("{e}");
+                    //                 tracing::error!("{e}");
                     //             }
 
                     //             ws_sender
@@ -365,7 +366,7 @@ async fn read(
                     //                 .send(Message::Text(to_irc_message("Started playing spotify")))
                     //                 .await?;
                     //         } else {
-                    //             println!("no script");
+                    //             tracing::error!("no script");
                     //         }
                     //     }
                     //     "stopspotify" | "stopsp" => {
@@ -380,7 +381,7 @@ async fn read(
                     //             .args(["--player=spotify", "pause"])
                     //             .spawn()
                     //         {
-                    //             println!("{e}");
+                    //             tracing::error!("{e}");
                     //             continue;
                     //         }
 
@@ -429,16 +430,15 @@ async fn read(
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
                     } else if msg.contains("RECONNECT") {
-                        // TODO: reconnect with url
-                        println!("reconnect with url");
+                        tracing::debug!("reconnect with url");
                         continue 'restart;
                     } else {
-                        // println!("{msg}");
+                        // tracing::info!("{msg}");
                     }
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("irc websocket error: {e}");
+                    tracing::error!("IRC websocket error: {e}");
                     continue 'restart;
                 }
             }

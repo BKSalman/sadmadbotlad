@@ -269,7 +269,7 @@ pub fn play_song(
                 queue_sender.send(QueueMessages::ClearCurrentSong)?;
 
                 if let Some(song) = song_receiver.blocking_recv() {
-                    println!("{song:#?}");
+                    tracing::info!("song: {song:#?}");
 
                     mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
                         .expect("play song");
@@ -278,7 +278,7 @@ pub fn play_song(
                 }
             }
             Err(libmpv::Error::Raw(e)) => {
-                println!("Mpv Error:: {e}");
+                tracing::error!("Mpv Error:: {e}");
                 queue_sender.send(QueueMessages::ClearCurrentSong)?;
                 // event_sender.send(crate::event_handler::Event::MpvEvent(
                 //     crate::event_handler::MpvEvent::Error(e),

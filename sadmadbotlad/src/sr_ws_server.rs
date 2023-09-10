@@ -14,7 +14,7 @@ use crate::{song_requests::QueueMessages, APP};
 pub async fn sr_ws_server(
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
 ) -> Result<(), eyre::Report> {
-    println!("Starting Sr WebSocket Server on port {}", APP.config.port);
+    tracing::info!("Starting Sr WebSocket Server on port {}", APP.config.port);
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
     let address = SocketAddrV4::new(ip_address, APP.config.port);
@@ -23,7 +23,7 @@ pub async fn sr_ws_server(
     while let Ok((stream, _)) = listener.accept().await {
         let peer = stream.peer_addr()?;
 
-        // println!("Songs Peer address: {}", peer);
+        tracing::debug!("Songs Peer address: {}", peer);
 
         tokio::spawn(accept_connection(queue_sender.to_owned(), peer, stream));
     }
@@ -37,7 +37,7 @@ async fn accept_connection(
     stream: TcpStream,
 ) {
     if let Err(e) = handle_connection(queue_sender, peer, stream).await {
-        println!("Error processing connection: {}", e)
+        tracing::error!("Error processing connection: {}", e)
     }
 }
 
@@ -58,14 +58,14 @@ async fn handle_connection(
         return Err(eyre::eyre!("Could not get queue"));
     };
 
-    println!("Sending Queue to Peer {peer}");
+    tracing::info!("Sending Queue to Peer {peer}");
 
     let Ok(queue) = serde_json::to_string(&queue) else {
         panic!("Could not parse queue to string");
     };
 
     if let Err(e) = ws_stream.send(Message::Text(queue)).await {
-        println!("WebSocket server:: {e}");
+        tracing::error!("WebSocket server:: {e}");
         return Ok(());
     }
 

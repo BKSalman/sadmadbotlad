@@ -190,7 +190,10 @@ pub async fn get_access_token_from_code(
 
     let res = res.json::<Value>().await?;
 
-    println!("{:#?}\r", res["scope"].as_array().unwrap());
+    tracing::info!(
+        "twitch token scopes: {:#?}\r",
+        res["scope"].as_array().unwrap()
+    );
 
     let mut api_info = (*api_info).clone();
 
@@ -285,7 +288,7 @@ pub async fn run_ads(
 
     let res = res.json::<TwitchAd>().await?;
 
-    println!("{:#?}", res);
+    tracing::debug!("{:#?}", res);
 
     Ok(res.data[0].retry_after)
 }
@@ -296,7 +299,7 @@ pub async fn access_token(api_info: Arc<ApiInfo>) -> eyre::Result<()> {
 
     let port = 4040;
 
-    println!("Auth service on port {port}");
+    tracing::info!("Auth service on port {port}");
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
     let address = SocketAddrV4::new(ip_address, port);
     let listener = TcpListener::bind(address).await?;
@@ -309,7 +312,7 @@ pub async fn access_token(api_info: Arc<ApiInfo>) -> eyre::Result<()> {
         .peer_addr()
         .expect("connected streams should have a peer address");
 
-    println!("Peer address: {}", peer);
+    tracing::debug!("Peer address: {}", peer);
 
     let mut ws = accept_async(stream).await?;
 
@@ -318,7 +321,7 @@ pub async fn access_token(api_info: Arc<ApiInfo>) -> eyre::Result<()> {
             Ok(tungstenite::Message::Text(code)) => {
                 get_access_token_from_code(&code, api_info).await?;
             }
-            _ => println!("something wierd happened"),
+            _ => tracing::error!("could not get code from frontend"),
         }
     }
 
@@ -396,7 +399,7 @@ impl TwitchToken {
             .await?;
 
         if !res.status().is_success() {
-            println!("token expired. Refreshing...");
+            tracing::info!("token expired. Refreshing...");
             self.refresh_access_token().await?;
         }
 
@@ -406,7 +409,7 @@ impl TwitchToken {
     }
 
     pub async fn refresh_access_token(&mut self) -> Result<(), TwitchError> {
-        println!("Refreshing token");
+        tracing::info!("Refreshing token");
         let http_client = Client::new();
 
         let res = http_client

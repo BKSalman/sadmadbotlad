@@ -15,13 +15,14 @@ pub async fn obs_websocket(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
 ) -> eyre::Result<()> {
-    let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await else {
-        println!("Could not connect to obs websocket");
-        return Ok(())
+    let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await
+    else {
+        tracing::error!("Could not connect to obs websocket");
+        return Ok(());
     };
 
     if let Err(e) = refresh_alert_box(&client).await {
-        println!("{e}");
+        tracing::error!("{e}");
     }
 
     let events = client.events()?;
@@ -30,7 +31,7 @@ pub async fn obs_websocket(
     while let Some(event) = events.next().await {
         if let Event::CurrentProgramSceneChanged { name } = event {
             if let Err(e) = refresh_alert_box(&client).await {
-                println!("{e}");
+                tracing::error!("{e}");
             }
 
             if name != "Random" {
@@ -39,8 +40,8 @@ pub async fn obs_websocket(
 
             match run_ads(token_sender.clone()).await {
                 Ok(retry) => {
-                    println!("retry after {} seconds", retry);
-                    println!("Starting a 90 seconds commercial break");
+                    tracing::info!("retry after {} seconds", retry);
+                    tracing::info!("Starting a 90 seconds commercial break");
 
                     // TODO: send this to IRC
                     // ws_sender
@@ -51,7 +52,7 @@ pub async fn obs_websocket(
                 }
                 Err(e) => {
                     if e.to_string().contains("too many requests") {
-                        println!("{e:?}");
+                        tracing::error!("{e:?}");
                     } else {
                         panic!("{e}");
                     }

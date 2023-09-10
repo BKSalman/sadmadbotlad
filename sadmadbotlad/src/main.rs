@@ -13,6 +13,8 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
+    tracing_subscriber::fmt::init();
+
     let api_info = Arc::new(ApiInfo::new().expect("Api info failed"));
 
     if APP.config.manual {
