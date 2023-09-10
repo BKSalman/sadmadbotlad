@@ -114,7 +114,7 @@
                   $out/bin/sadmadbotlad
 
                 wrapProgram $out/bin/sadmadbotlad \
-                  --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.playerctl ]}
+                  --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.playerctl pkgs.yt-dlp ]}
 
                 mkdir -p $out/share
                 cp -r commands $out/share
