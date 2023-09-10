@@ -33,6 +33,7 @@
             llvmPackages.libclang
             llvmPackages.libcxxClang
             makeWrapper
+            playerctl
         ];
 
         buildInputs = with pkgs; [
@@ -103,12 +104,17 @@
 
               src = craneLib.path ./sadmadbotlad;
 
-              inherit buildInputs nativeBuildInputs ;
+              inherit buildInputs nativeBuildInputs;
 
               cargoArtifacts = sadmadbotladArtifacts;
 
               postInstall = ''
-                wrapProgram $out/bin/sadmadbotlad --suffix LD_LIBRARY_PATH : ${libPath}
+                patchelf \
+                  --set-rpath ${libPath}\
+                  $out/bin/sadmadbotlad
+
+                wrapProgram $out/bin/sadmadbotlad \
+                  --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.playerctl ]}
 
                 mkdir -p $out/share
                 cp -r commands $out/share
