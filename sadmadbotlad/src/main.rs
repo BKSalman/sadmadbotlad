@@ -8,12 +8,12 @@ use sadmadbotlad::sr_ws_server::sr_ws_server;
 use sadmadbotlad::twitch::{access_token, TwitchToken, TwitchTokenMessages};
 use sadmadbotlad::ws_server::ws_server;
 use sadmadbotlad::{eventsub::eventsub, irc::irc_connect};
-use sadmadbotlad::{flatten, Alert, ApiInfo, MainError, APP};
+use sadmadbotlad::{flatten, logging, Alert, ApiInfo, MainError, APP};
 use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    tracing_subscriber::fmt::init();
+    logging();
 
     let api_info = Arc::new(ApiInfo::new().expect("Api info failed"));
 

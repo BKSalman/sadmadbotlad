@@ -352,7 +352,7 @@ fn new_connection(
         while let Some(msg) = receiver.next().await {
             match msg {
                 Ok(Message::Ping(ping)) => {
-                    // tracing::debug!("eventsub:: ping {ping:?}");
+                    tracing::debug!("{connection_url} -- ping {ping:?}");
                     sender.send(Message::Pong(ping)).await?;
                 }
                 Ok(msg) => irc_sender.send(msg)?,

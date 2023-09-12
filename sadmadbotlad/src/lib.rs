@@ -8,6 +8,12 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use song_requests::Queue;
 use tokio::task::JoinHandle;
+use tracing::{metadata::LevelFilter, Level};
+use tracing_appender::rolling;
+use tracing_subscriber::{
+    fmt::writer::MakeWriterExt, prelude::__tracing_subscriber_SubscriberExt,
+    util::SubscriberInitExt, EnvFilter,
+};
 use twitch::TwitchApiInfo;
 
 pub mod commands;
@@ -504,4 +510,44 @@ impl ModuleLoader for CommandsLoader {
                 .clone(),
         ))
     }
+}
+
+pub fn logging() {
+    if let Err(_e) = std::env::var("RUST_LOG") {
+        println!("no log level specified, defaulting to debug level for sadmadbotlad crate only");
+        std::env::set_var("RUST_LOG", "none,sadmadbotlad=debug");
+    }
+
+    let logs_dir = dirs::cache_dir()
+        .expect("cache dir should exist")
+        .join("sadmadbotlad/logs");
+
+    // Log all `tracing` events to files prefixed with `debug`. Since these
+    // files will be written to very frequently, roll the log file every minute.
+    let debug_file = rolling::minutely(&logs_dir, "debug");
+    // Log warnings and errors to a separate file. Since we expect these events
+    // to occur less frequently, roll that file on a daily basis instead.
+    let warn_file = rolling::daily(&logs_dir, "warnings");
+
+    tracing_subscriber::registry()
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::ERROR.into())
+                .from_env_lossy(),
+        )
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .with_writer(debug_file.with_max_level(Level::DEBUG))
+                .with_ansi(false),
+        )
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .with_writer(warn_file.with_max_level(tracing::Level::WARN))
+                .with_ansi(false),
+        )
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .with_writer(std::io::stdout.with_max_level(Level::DEBUG)),
+        )
+        .init();
 }

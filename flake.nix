@@ -109,9 +109,7 @@
               cargoArtifacts = sadmadbotladArtifacts;
 
               postInstall = ''
-                patchelf \
-                  --set-rpath ${libPath}\
-                  $out/bin/sadmadbotlad
+                patchelf --set-rpath ${libPath} $out/bin/sadmadbotlad
 
                 wrapProgram $out/bin/sadmadbotlad \
                   --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.playerctl pkgs.yt-dlp ]}
