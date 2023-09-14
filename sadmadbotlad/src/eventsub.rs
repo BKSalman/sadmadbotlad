@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 
@@ -8,8 +9,10 @@ use crate::{Alert, AlertEventType, ApiInfo};
 use chrono::ParseError;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::{StatusCode, Url};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[derive(thiserror::Error, Debug)]
@@ -50,6 +53,61 @@ pub enum EventsubError {
     ReqwestError(#[from] reqwest::Error),
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct EventsubMessage {
+    metadata: EventsubMetadata,
+    payload: EventsubPayload,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct EventsubMetadata {
+    message_type: EventsubMessageType,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EventsubMessageType {
+    SessionWelcome,
+    SessionKeepalive,
+    Notification,
+    SessionReconnect,
+    Revocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct EventsubPayload {
+    session: Option<EventsubSession>,
+    subscription: Option<EventsubSubscription>,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct EventsubSubscription {
+    status: String,
+    r#type: String,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct EventsubSession {
+    id: String,
+    status: SessionStatus,
+    reconnect_url: Option<String>,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SessionStatus {
+    Connected,
+    Reconnecting,
+}
+
 pub async fn eventsub(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
@@ -83,23 +141,44 @@ async fn read(
             connections_handlers.push(new_connection(
                 "wss://eventsub.wss.twitch.tv/ws",
                 irc_sender,
+                connections_handlers.len(),
             ));
         }
 
         while let Some(msg) = irc_receiver.recv().await {
             match msg {
-                Message::Close(reason) => {
-                    // if let Some(close_frame) = &reason {
-                    //     if let CloseCode::Reserved(code) = close_frame.code {
-                    //         if code == 4004 {
-                    //             continue 'restart;
-                    //         }
-                    //     }
-                    // }
+                Message::Close(reason) => match reason.as_ref() {
+                    Some(close_frame) => match close_frame.code {
+                        CloseCode::Reserved(code) if code == 4004 => {
+                            tracing::debug!("Received close code {code}. removing old connections");
 
-                    tracing::error!("websocket connection closed: {reason:#?}");
-                    continue 'restart;
-                }
+                            // abort all tokio tasks but the last one
+                            // to remove old connections
+                            let new_handler = connections_handlers.pop().expect("new handler");
+
+                            for (i, handler) in connections_handlers.iter().enumerate() {
+                                tracing::debug!("aborting connection {i} {handler:#?}");
+                                handler.abort();
+                            }
+
+                            connections_handlers.clear();
+                            connections_handlers.push(new_handler);
+
+                            tracing::debug!(
+                                "connections after aborting: {}",
+                                connections_handlers.len()
+                            );
+                        }
+                        code => {
+                            tracing::error!("websocket connection closed: {code:#?}");
+                            continue 'restart;
+                        }
+                    },
+                    None => {
+                        tracing::error!("websocket connection closed: {reason:#?}");
+                        continue 'restart;
+                    }
+                },
                 msg => {
                     let msg = msg.to_string();
                     if msg.contains("connection unused") {
@@ -107,27 +186,17 @@ async fn read(
                         return Err(EventsubError::ConnectionUnused);
                     }
 
-                    let json_lossy = match serde_json::from_str::<Value>(&msg) {
+                    let eventsub_message = match serde_json::from_str::<EventsubMessage>(&msg) {
                         Ok(json_msg) => json_msg,
                         Err(e) => {
                             panic!("eventsub:: json Error: {} \n Message: {}", e, msg);
                         }
                     };
 
-                    match json_lossy["metadata"]["message_type"].as_str() {
-                        // Some("session_reconnect") => {
-                        //     tracing::debug!("Reconnecting eventsub");
-
-                        //     connection_url = session["reconnect_url"]
-                        //         .as_str()
-                        //         .expect("reconnect url")
-                        //         .to_string();
-                        // }
-                        Some("session_welcome") => {
-                            if let Some(_reconnect_url) =
-                                json_lossy["payload"]["session"]["reconnect_url"].as_str()
-                            {
-                                tracing::debug!("removing old connections");
+                    match eventsub_message.metadata.message_type {
+                        EventsubMessageType::SessionWelcome => {
+                            if connections_handlers.len() > 1 {
+                                tracing::debug!("Received welcome message on new connection. removing old connections");
 
                                 // abort all tokio tasks but the last one
                                 // to remove old connections
@@ -146,189 +215,201 @@ async fn read(
                                 );
                             }
 
-                            if let Some(session) = json_lossy["payload"]["session"].as_object() {
-                                let status = session["status"].as_str();
-                                match status {
-                                    Some("connected") => {
-                                        let session_id =
-                                            session["id"].as_str().expect("session id");
+                            let session = eventsub_message
+                                .payload
+                                .session
+                                .expect("session_welcome should have session field");
+                            match session.status {
+                                SessionStatus::Connected => {
+                                    let session_id = session.id;
 
-                                        subscribe(&token_sender, session_id).await?;
+                                    online_eventsub(token_sender.clone(), &session_id).await?;
+                                    offline_eventsub(token_sender.clone(), &session_id).await?;
+                                    follow_eventsub(token_sender.clone(), &session_id).await?;
+                                    raid_eventsub(token_sender.clone(), &session_id).await?;
+                                    subscribe_eventsub(token_sender.clone(), &session_id).await?;
+                                    resubscribe_eventsub(token_sender.clone(), &session_id).await?;
+                                    giftsub_eventsub(token_sender.clone(), &session_id).await?;
+                                    rewards_eventsub(token_sender.clone(), &session_id).await?;
+                                    cheers_eventsub(token_sender.clone(), &session_id).await?;
 
-                                        tracing::info!("Subscribed to eventsubs");
-                                    }
-                                    _ => tracing::debug!("status: {status:#?}"),
+                                    tracing::info!("Subscribed to eventsubs");
                                 }
+                                status => tracing::debug!("status: {:#?}", status),
                             }
                         }
-                        Some("notification") => {
-                            if let Some(sub_type) =
-                                json_lossy["payload"]["subscription"]["type"].as_str()
-                            {
-                                tracing::debug!("got {:?} event", sub_type);
+                        EventsubMessageType::Notification => {
+                            let sub_type = eventsub_message
+                                .payload
+                                .subscription
+                                .expect("notification should have subscription field")
+                                .r#type;
+                            tracing::debug!("got {:?} event", sub_type);
 
-                                match sub_type {
-                                    "stream.online" => {
-                                        stream_online_event(
-                                            &token_sender,
-                                            &mut title,
-                                            &mut game_name,
-                                            &mut discord_msg_id,
-                                            &api_info,
-                                        )
-                                        .await?;
+                            let event = eventsub_message
+                                .payload
+                                .extra
+                                .get("event")
+                                .expect("notification have event field");
+
+                            match sub_type.as_str() {
+                                "stream.online" => {
+                                    stream_online_event(
+                                        &token_sender,
+                                        &mut title,
+                                        &mut game_name,
+                                        &mut discord_msg_id,
+                                        &api_info,
+                                    )
+                                    .await?;
+                                }
+                                "stream.offline" => {
+                                    if title.is_empty() || game_name.is_empty() {
+                                        continue;
                                     }
-                                    "stream.offline" => {
-                                        if title.is_empty() || game_name.is_empty() {
-                                            continue;
+
+                                    offline_notification(
+                                        &title,
+                                        &game_name,
+                                        &api_info,
+                                        &discord_msg_id,
+                                    )
+                                    .await?;
+                                }
+                                "channel.follow" => {
+                                    let follower = event["user_name"]
+                                        .as_str()
+                                        .expect("follow username")
+                                        .to_string();
+
+                                    write_recent("follow", &follower)?;
+
+                                    let alert = AlertEventType::Follow { follower };
+
+                                    let res = store.new_event(alert.clone()).await?;
+
+                                    tracing::debug!("added {sub_type} event to db {res:#?}");
+
+                                    if let Err(err) = alerts_sender.send(Alert {
+                                        new: true,
+                                        r#type: alert.clone(),
+                                    }) {
+                                        tracing::error!(
+                                            "failed to send alert: {alert:#?} -- {err:#?}"
+                                        );
+                                    }
+                                }
+                                "channel.raid" => {
+                                    let from = event["from_broadcaster_user_name"]
+                                        .as_str()
+                                        .expect("from_broadcaster_user_name")
+                                        .to_string();
+                                    let viewers = event["viewers"].as_u64().expect("viewers");
+
+                                    write_recent("raid", &from)?;
+
+                                    let alert = AlertEventType::Raid { from, viewers };
+
+                                    let res = store.new_event(alert.clone()).await?;
+
+                                    tracing::debug!("added {sub_type} event to db {res:#?}");
+
+                                    alerts_sender.send(Alert {
+                                        new: true,
+                                        r#type: alert,
+                                    })?;
+                                }
+                                "channel.subscribe" => {
+                                    channel_subscribe_event(&event, &store, &alerts_sender).await?;
+                                }
+                                "channel.subscription.message" => {
+                                    channel_subscription_message_event(
+                                        &event,
+                                        &store,
+                                        &alerts_sender,
+                                    )
+                                    .await?
+                                }
+                                "channel.subscription.gift" => {
+                                    let gifter =
+                                        event["user_name"].as_str().expect("user_name").to_string();
+
+                                    let tier = {
+                                        let long_tier = event["tier"].as_str().expect("tier");
+                                        if long_tier != "Prime" {
+                                            long_tier
+                                                .chars()
+                                                .next()
+                                                .expect("first char")
+                                                .to_string()
+                                        } else {
+                                            long_tier.to_string()
                                         }
+                                    };
 
-                                        offline_notification(
-                                            &title,
-                                            &game_name,
-                                            &api_info,
-                                            &discord_msg_id,
-                                        )
-                                        .await?;
-                                    }
-                                    "channel.follow" => {
-                                        let follower = json_lossy["payload"]["event"]["user_name"]
-                                            .as_str()
-                                            .expect("follow username")
-                                            .to_string();
+                                    let total = event["total"].as_u64().expect("total");
 
-                                        write_recent("follow", &follower)?;
+                                    let alert = AlertEventType::GiftSub {
+                                        gifter,
+                                        total,
+                                        tier,
+                                    };
 
-                                        let alert = AlertEventType::Follow { follower };
+                                    let res = store.new_event(alert.clone()).await?;
 
-                                        let res = store.new_event(alert.clone()).await?;
+                                    tracing::debug!("added {sub_type} event to db {res:#?}");
 
-                                        tracing::debug!("added {sub_type} event to db {res:#?}");
-
-                                        if let Err(err) = alerts_sender.send(Alert {
-                                            new: true,
-                                            r#type: alert.clone(),
-                                        }) {
-                                            tracing::error!(
-                                                "failed to send alert: {alert:#?} -- {err:#?}"
-                                            );
-                                        }
-                                    }
-                                    "channel.raid" => {
-                                        let from = json_lossy["payload"]["event"]
-                                            ["from_broadcaster_user_name"]
-                                            .as_str()
-                                            .expect("from_broadcaster_user_name")
-                                            .to_string();
-                                        let viewers = json_lossy["payload"]["event"]["viewers"]
-                                            .as_u64()
-                                            .expect("viewers");
-
-                                        write_recent("raid", &from)?;
-
-                                        let alert = AlertEventType::Raid { from, viewers };
-
-                                        let res = store.new_event(alert.clone()).await?;
-
-                                        tracing::debug!("added {sub_type} event to db {res:#?}");
-
-                                        alerts_sender.send(Alert {
-                                            new: true,
-                                            r#type: alert,
-                                        })?;
-                                    }
-                                    "channel.subscribe" => {
-                                        channel_subscribe_event(
-                                            &json_lossy,
-                                            &store,
-                                            &alerts_sender,
-                                        )
-                                        .await?;
-                                    }
-                                    "channel.subscription.message" => {
-                                        channel_subscription_message_event(
-                                            &json_lossy,
-                                            &store,
-                                            &alerts_sender,
-                                        )
-                                        .await?
-                                    }
-                                    "channel.subscription.gift" => {
-                                        let gifter = json_lossy["payload"]["event"]["user_name"]
-                                            .as_str()
-                                            .expect("user_name")
-                                            .to_string();
-
-                                        let tier = {
-                                            let long_tier = json_lossy["payload"]["event"]["tier"]
-                                                .as_str()
-                                                .expect("tier");
-                                            if long_tier != "Prime" {
-                                                long_tier
-                                                    .chars()
-                                                    .next()
-                                                    .expect("first char")
-                                                    .to_string()
-                                            } else {
-                                                long_tier.to_string()
-                                            }
-                                        };
-
-                                        let total = json_lossy["payload"]["event"]["total"]
-                                            .as_u64()
-                                            .expect("total");
-
-                                        let alert = AlertEventType::GiftSub {
-                                            gifter,
-                                            total,
-                                            tier,
-                                        };
-
-                                        let res = store.new_event(alert.clone()).await?;
-
-                                        tracing::debug!("added {sub_type} event to db {res:#?}");
-
-                                        alerts_sender.send(Alert {
-                                            new: true,
-                                            r#type: alert,
-                                        })?;
-                                    }
-                                    "channel.cheer" => {
-                                        channel_cheer_event(&json_lossy, &store, &alerts_sender)
-                                            .await?
-                                    }
-                                    "channel.channel_points_custom_reward_redemption.add" => {
-                                        let redeemer = json_lossy["payload"]["event"]["user_name"]
-                                            .as_str()
-                                            .expect("user_name")
-                                            .to_string();
-
-                                        let reward_title = json_lossy["payload"]["event"]["reward"]
-                                            ["title"]
-                                            .as_str()
-                                            .expect("reward title")
-                                            .to_string();
-
-                                        tracing::debug!("{redeemer} redeemed: {reward_title}");
-                                    }
-                                    _ => todo!(),
+                                    alerts_sender.send(Alert {
+                                        new: true,
+                                        r#type: alert,
+                                    })?;
                                 }
+                                "channel.cheer" => {
+                                    channel_cheer_event(&event, &store, &alerts_sender).await?
+                                }
+                                "channel.channel_points_custom_reward_redemption.add" => {
+                                    let redeemer =
+                                        event["user_name"].as_str().expect("user_name").to_string();
+
+                                    let reward_title = event["reward"]["title"]
+                                        .as_str()
+                                        .expect("reward title")
+                                        .to_string();
+
+                                    tracing::debug!("{redeemer} redeemed: {reward_title}");
+                                }
+                                _ => todo!(),
                             }
                         }
-                        Some("session_reconnect") => {
-                            if let Some(reconnect_url) =
-                                json_lossy["payload"]["reconnect_url"].as_str()
+                        EventsubMessageType::SessionReconnect => {
+                            let reconnect_url = eventsub_message
+                                .payload
+                                .session
+                                .expect("session_reconnect should have session field")
+                                .reconnect_url
+                                .expect("session_reconnect should have reconnect_url field");
+
+                            tracing::debug!("got reconnection url: {reconnect_url}");
                             {
-                                {
-                                    let irc_sender = irc_sender.clone();
-                                    connections_handlers
-                                        .push(new_connection(reconnect_url, irc_sender));
-                                }
+                                let irc_sender = irc_sender.clone();
+                                connections_handlers.push(new_connection(
+                                    &reconnect_url,
+                                    irc_sender,
+                                    connections_handlers.len(),
+                                ));
                             }
                         }
-                        Some("session_keepalive") => {}
-                        Some(_) => todo!(),
-                        None => todo!(),
+                        EventsubMessageType::SessionKeepalive => {
+                            tracing::debug!("session_keepalive");
+                        }
+                        EventsubMessageType::Revocation => {
+                            let subscription = eventsub_message
+                                .payload
+                                .subscription
+                                .expect("revocation should have subscription field");
+
+                            tracing::error!("connection revoked type: {:#?}", subscription);
+                        }
                     };
                 }
             }
@@ -339,6 +420,7 @@ async fn read(
 fn new_connection(
     connection_url: &str,
     irc_sender: mpsc::UnboundedSender<Message>,
+    index: usize,
 ) -> tokio::task::JoinHandle<Result<(), EventsubError>> {
     tracing::debug!("new connection");
     let connection_url = connection_url.to_string();
@@ -352,7 +434,7 @@ fn new_connection(
         while let Some(msg) = receiver.next().await {
             match msg {
                 Ok(Message::Ping(ping)) => {
-                    tracing::debug!("{connection_url} -- ping {ping:?}");
+                    tracing::debug!("{index}:: {connection_url} -- ping {ping:?}");
                     sender.send(Message::Pong(ping)).await?;
                 }
                 Ok(msg) => irc_sender.send(msg)?,
@@ -409,18 +491,15 @@ async fn channel_cheer_event(
 }
 
 async fn channel_subscription_message_event(
-    json_lossy: &Value,
+    event: &Value,
     store: &Arc<Store>,
     alerts_sender: &tokio::sync::broadcast::Sender<Alert>,
 ) -> Result<(), EventsubError> {
-    let subscriber = (*json_lossy)["payload"]["event"]["user_name"]
-        .as_str()
-        .expect("user_name")
-        .to_string();
+    let subscriber = event["user_name"].as_str().expect("user_name").to_string();
 
     write_recent("sub", &subscriber)?;
 
-    let tier = (*json_lossy)["payload"]["event"]["tier"]
+    let tier = event["tier"]
         .as_str()
         .expect("tier")
         .chars()
@@ -428,13 +507,11 @@ async fn channel_subscription_message_event(
         .expect("first char")
         .to_string();
 
-    let subscribed_for = (*json_lossy)["payload"]["event"]["cumulative_months"]
+    let subscribed_for = event["cumulative_months"]
         .as_u64()
         .expect("cumulative_months");
 
-    let streak = (*json_lossy)["payload"]["event"]["streak_months"]
-        .as_u64()
-        .expect("streak months");
+    let streak = event["streak_months"].as_u64().expect("streak months");
 
     write_recent("sub", &subscriber)?;
 
@@ -508,19 +585,14 @@ async fn stream_online_event(
 }
 
 async fn channel_subscribe_event(
-    json_lossy: &Value,
+    event: &Value,
     store: &Arc<Store>,
     alerts_sender: &tokio::sync::broadcast::Sender<Alert>,
 ) -> Result<(), EventsubError> {
-    let subscriber = (*json_lossy)["payload"]["event"]["user_name"]
-        .as_str()
-        .expect("user_name")
-        .to_string();
+    let subscriber = event["user_name"].as_str().expect("user_name").to_string();
 
     let tier = {
-        let long_tier = (*json_lossy)["payload"]["event"]["tier"]
-            .as_str()
-            .expect("tier");
+        let long_tier = event["tier"].as_str().expect("tier");
         if long_tier == "Prime" {
             long_tier.to_string()
         } else {
@@ -530,54 +602,36 @@ async fn channel_subscribe_event(
 
     write_recent("sub", &subscriber)?;
 
-    match (*json_lossy)["payload"]["event"]["is_gift"].as_bool() {
-        Some(true) => {
-            let alert = AlertEventType::GiftedSub {
-                gifted: subscriber,
-                tier,
-            };
+    if event["is_gift"]
+        .as_bool()
+        .expect("channel subscribe should have is_gift field")
+    {
+        let alert = AlertEventType::GiftedSub {
+            gifted: subscriber,
+            tier,
+        };
 
-            let res = store.new_event(alert.clone()).await?;
+        let res = store.new_event(alert.clone()).await?;
 
-            tracing::debug!("added {:#?} event to db {res:#?}", alert);
+        tracing::debug!("added {:#?} event to db {res:#?}", alert);
 
-            alerts_sender.send(Alert {
-                new: true,
-                r#type: alert,
-            })?;
-        }
-        Some(false) => {
-            let alert = AlertEventType::Subscribe { subscriber, tier };
-            tracing::info!("Sub event:: {alert:#?}");
+        alerts_sender.send(Alert {
+            new: true,
+            r#type: alert,
+        })?;
+    } else {
+        let alert = AlertEventType::Subscribe { subscriber, tier };
+        tracing::info!("Sub event:: {alert:#?}");
 
-            // this already gets sent as a sub message
-            // I want to get events only when the subscriber
-            // chooses to send the message
+        // this already gets sent as a sub message
+        // I want to get events only when the subscriber
+        // chooses to send the message
 
-            // front_end_event_sender.send(Alert {
-            //     new: true,
-            //     r#type: AlertEventType::Subscribe { subscriber, tier },
-            // })?;
-        }
-        None => {}
+        // front_end_event_sender.send(Alert {
+        //     new: true,
+        //     r#type: AlertEventType::Subscribe { subscriber, tier },
+        // })?;
     }
-
-    Ok(())
-}
-
-async fn subscribe(
-    token_sender: &mpsc::UnboundedSender<TwitchTokenMessages>,
-    session_id: &str,
-) -> Result<(), EventsubError> {
-    online_eventsub(token_sender.clone(), session_id).await?;
-    offline_eventsub(token_sender.clone(), session_id).await?;
-    follow_eventsub(token_sender.clone(), session_id).await?;
-    raid_eventsub(token_sender.clone(), session_id).await?;
-    subscribe_eventsub(token_sender.clone(), session_id).await?;
-    resubscribe_eventsub(token_sender.clone(), session_id).await?;
-    giftsub_eventsub(token_sender.clone(), session_id).await?;
-    rewards_eventsub(token_sender.clone(), session_id).await?;
-    cheers_eventsub(token_sender.clone(), session_id).await?;
 
     Ok(())
 }
