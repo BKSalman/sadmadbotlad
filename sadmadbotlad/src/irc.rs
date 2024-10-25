@@ -425,7 +425,7 @@ async fn read(
                     // }
                 }
                 Ok(Message::Text(msg)) => {
-                    if msg.contains("PING") {
+                    if msg.starts_with("PING :tmi.twitch.tv") {
                         irc_sender
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
