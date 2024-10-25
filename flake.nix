@@ -25,7 +25,7 @@
             mpv
         ];
 
-        craneLib = crane.lib.${system};
+        craneLib = (crane.mkLib nixpkgs.legacyPackages.${system});
 
         nativeBuildInputs = with pkgs; [
             dbus
