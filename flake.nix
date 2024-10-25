@@ -143,6 +143,7 @@
             ];
             
             BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
             ROCKSDB_STATIC = "true";
             LD_LIBRARY_PATH = "${libPath}";

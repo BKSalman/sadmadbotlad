@@ -213,29 +213,31 @@ async fn read(
                                     "connections after aborting: {}",
                                     connections_handlers.len()
                                 );
-                            }
+                            } else {
+                                let session = eventsub_message
+                                    .payload
+                                    .session
+                                    .expect("session_welcome should have session field");
+                                match session.status {
+                                    SessionStatus::Connected => {
+                                        let session_id = session.id;
 
-                            let session = eventsub_message
-                                .payload
-                                .session
-                                .expect("session_welcome should have session field");
-                            match session.status {
-                                SessionStatus::Connected => {
-                                    let session_id = session.id;
+                                        online_eventsub(token_sender.clone(), &session_id).await?;
+                                        offline_eventsub(token_sender.clone(), &session_id).await?;
+                                        follow_eventsub(token_sender.clone(), &session_id).await?;
+                                        raid_eventsub(token_sender.clone(), &session_id).await?;
+                                        subscribe_eventsub(token_sender.clone(), &session_id)
+                                            .await?;
+                                        resubscribe_eventsub(token_sender.clone(), &session_id)
+                                            .await?;
+                                        giftsub_eventsub(token_sender.clone(), &session_id).await?;
+                                        rewards_eventsub(token_sender.clone(), &session_id).await?;
+                                        cheers_eventsub(token_sender.clone(), &session_id).await?;
 
-                                    online_eventsub(token_sender.clone(), &session_id).await?;
-                                    offline_eventsub(token_sender.clone(), &session_id).await?;
-                                    follow_eventsub(token_sender.clone(), &session_id).await?;
-                                    raid_eventsub(token_sender.clone(), &session_id).await?;
-                                    subscribe_eventsub(token_sender.clone(), &session_id).await?;
-                                    resubscribe_eventsub(token_sender.clone(), &session_id).await?;
-                                    giftsub_eventsub(token_sender.clone(), &session_id).await?;
-                                    rewards_eventsub(token_sender.clone(), &session_id).await?;
-                                    cheers_eventsub(token_sender.clone(), &session_id).await?;
-
-                                    tracing::info!("Subscribed to eventsubs");
+                                        tracing::info!("Subscribed to eventsubs");
+                                    }
+                                    status => tracing::debug!("status: {:#?}", status),
                                 }
-                                status => tracing::debug!("status: {:#?}", status),
                             }
                         }
                         EventsubMessageType::Notification => {
@@ -320,11 +322,11 @@ async fn read(
                                     })?;
                                 }
                                 "channel.subscribe" => {
-                                    channel_subscribe_event(&event, &store, &alerts_sender).await?;
+                                    channel_subscribe_event(event, &store, &alerts_sender).await?;
                                 }
                                 "channel.subscription.message" => {
                                     channel_subscription_message_event(
-                                        &event,
+                                        event,
                                         &store,
                                         &alerts_sender,
                                     )
@@ -365,7 +367,7 @@ async fn read(
                                     })?;
                                 }
                                 "channel.cheer" => {
-                                    channel_cheer_event(&event, &store, &alerts_sender).await?
+                                    channel_cheer_event(event, &store, &alerts_sender).await?
                                 }
                                 "channel.channel_points_custom_reward_redemption.add" => {
                                     let redeemer =
@@ -378,7 +380,7 @@ async fn read(
 
                                     tracing::debug!("{redeemer} redeemed: {reward_title}");
                                 }
-                                _ => todo!(),
+                                _ => {}
                             }
                         }
                         EventsubMessageType::SessionReconnect => {
