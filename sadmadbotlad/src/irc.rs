@@ -181,10 +181,10 @@ async fn read(
 
         tokio::spawn(async move {
             while let Some(message) = irc_receiver.recv().await {
-                ws_sender.send(message).await?;
+                if let Err(e) = ws_sender.send(message).await {
+                    tracing::error!("Failed to send on twitch IRC websocket: {e}");
+                }
             }
-
-            Ok::<_, IrcError>(())
         });
 
         while let Some(msg) = ws_receiver.next().await {
