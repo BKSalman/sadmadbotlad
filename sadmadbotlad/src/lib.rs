@@ -523,8 +523,8 @@ pub fn logging() {
         .join("sadmadbotlad/logs");
 
     // Log all `tracing` events to files prefixed with `debug`. Since these
-    // files will be written to very frequently, roll the log file every minute.
-    let debug_file = rolling::minutely(&logs_dir, "debug");
+    // files will be written to very frequently, roll the log file every hour.
+    let debug_file = rolling::hourly(&logs_dir, "debug");
     // Log warnings and errors to a separate file. Since we expect these events
     // to occur less frequently, roll that file on a daily basis instead.
     let warn_file = rolling::daily(&logs_dir, "warnings");
