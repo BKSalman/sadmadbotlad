@@ -284,7 +284,7 @@ async fn read(
                                         .expect("follow username")
                                         .to_string();
 
-                                    write_recent("follow", &follower)?;
+                                    write_recent("follow", &follower).ok();
 
                                     let alert = AlertEventType::Follow { follower };
 
@@ -308,7 +308,7 @@ async fn read(
                                         .to_string();
                                     let viewers = event["viewers"].as_u64().expect("viewers");
 
-                                    write_recent("raid", &from)?;
+                                    write_recent("raid", &from).ok();
 
                                     let alert = AlertEventType::Raid { from, viewers };
 
@@ -499,7 +499,7 @@ async fn channel_subscription_message_event(
 ) -> Result<(), EventsubError> {
     let subscriber = event["user_name"].as_str().expect("user_name").to_string();
 
-    write_recent("sub", &subscriber)?;
+    write_recent("sub", &subscriber).ok();
 
     let tier = event["tier"]
         .as_str()
@@ -515,7 +515,7 @@ async fn channel_subscription_message_event(
 
     let streak = event["streak_months"].as_u64().expect("streak months");
 
-    write_recent("sub", &subscriber)?;
+    write_recent("sub", &subscriber).ok();
 
     let alert = if subscribed_for > 1 {
         AlertEventType::ReSubscribe {
@@ -602,7 +602,7 @@ async fn channel_subscribe_event(
         }
     };
 
-    write_recent("sub", &subscriber)?;
+    write_recent("sub", &subscriber).ok();
 
     if event["is_gift"]
         .as_bool()
