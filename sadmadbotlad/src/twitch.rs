@@ -381,10 +381,9 @@ impl TwitchToken {
     }
 
     pub async fn update_token(&mut self) -> Result<(), TwitchError> {
-        let now =
-            chrono::NaiveDateTime::from_timestamp_millis(Local::now().timestamp_millis()).unwrap();
+        let now = chrono::DateTime::from_timestamp_millis(Local::now().timestamp_millis()).unwrap();
 
-        if self.api_info.expires_at > now {
+        if self.api_info.expires_at > now.naive_utc() {
             return Ok(());
         }
 
@@ -403,7 +402,10 @@ impl TwitchToken {
             self.refresh_access_token().await?;
         }
 
-        self.api_info.expires_at = now.checked_add_signed(Duration::seconds(3600)).unwrap();
+        self.api_info.expires_at = now
+            .naive_utc()
+            .checked_add_signed(Duration::seconds(3600))
+            .unwrap();
 
         Ok(())
     }

@@ -29,12 +29,12 @@ pub async fn obs_websocket(
     pin_mut!(events);
 
     while let Some(event) = events.next().await {
-        if let Event::CurrentProgramSceneChanged { name } = event {
+        if let Event::CurrentProgramSceneChanged { id } = event {
             if let Err(e) = refresh_alert_box(&client).await {
                 tracing::error!("{e}");
             }
 
-            if name != "Random" {
+            if id.name != "Random" {
                 continue;
             }
 
@@ -70,7 +70,7 @@ async fn refresh_alert_box(client: &Client) -> eyre::Result<()> {
     let id = client
         .scene_items()
         .id(obws::requests::scene_items::Id {
-            scene: &current_scene,
+            scene: current_scene.id.clone().into(),
             source: "AlertBox",
             search_offset: None,
         })
@@ -79,7 +79,7 @@ async fn refresh_alert_box(client: &Client) -> eyre::Result<()> {
     client
         .scene_items()
         .set_enabled(obws::requests::scene_items::SetEnabled {
-            scene: &current_scene,
+            scene: current_scene.id.clone().into(),
             item_id: id,
             enabled: false,
         })
@@ -90,7 +90,7 @@ async fn refresh_alert_box(client: &Client) -> eyre::Result<()> {
     client
         .scene_items()
         .set_enabled(obws::requests::scene_items::SetEnabled {
-            scene: &current_scene,
+            scene: current_scene.id.into(),
             item_id: id,
             enabled: true,
         })

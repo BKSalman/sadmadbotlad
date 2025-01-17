@@ -62,7 +62,7 @@ impl Store {
 
         let mut data: Object = Wrapper(alert.into()).try_into()?;
 
-        let now = Datetime::default().timestamp_nanos();
+        let now = Datetime::default().timestamp_nanos_opt().unwrap();
 
         data.insert("ctime".into(), now.into());
 

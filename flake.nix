@@ -48,6 +48,7 @@
           ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
           ROCKSDB_STATIC = "true";
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          NIX_LDFLAGS="-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";
 
           pname = "sadmadbotlad";
           src = craneLib.cleanCargoSource (craneLib.path ./sadmadbotlad);
@@ -134,7 +135,6 @@
 
           devShell = pkgs.mkShell.override { stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv; } {
             inherit buildInputs nativeBuildInputs;
-            NIX_CFLAGS_LINK = "-fuse-ld=mold";
             packages = with pkgs; [
               (rust-bin.stable.latest.default.override {
                 extensions = [ "rust-src" "rust-analyzer" ];
@@ -142,7 +142,8 @@
               })
             ];
             
-            BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.lib.getVersion pkgs.clang}/include";
+            # NIX_LDFLAGS = "-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";
+            BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
             ROCKSDB_STATIC = "true";
