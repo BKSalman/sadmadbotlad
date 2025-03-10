@@ -1,10 +1,10 @@
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
     time::Duration,
 };
-use surrealdb::sql::Object;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{
     accept_async,
@@ -12,7 +12,14 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use crate::{db::Store, Alert, APP};
+use crate::{db::Store, Alert, AlertEventType, APP};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Event {
+    new: bool,
+    alert_type: AlertEventType,
+    ctime: surrealdb::Datetime,
+}
 
 pub async fn ws_server(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
@@ -102,13 +109,14 @@ async fn handle_connection(
             Ok(Message::Text(msg)) => {
                 if msg.starts_with("db") {
                     tracing::debug!("db was requested ");
-                    let events: Vec<Object> = store
+                    let events: Vec<_> = store
                         .get_events()
                         .await?
                         .into_iter()
-                        .map(|mut e| {
-                            e.insert("new".into(), false.into());
-                            e
+                        .map(|e| Event {
+                            new: false,
+                            alert_type: e.alert_type,
+                            ctime: e.ctime,
                         })
                         .rev()
                         .collect();
@@ -120,6 +128,7 @@ async fn handle_connection(
                         .await
                         .send(Message::Text(format!("db::{}", events)))
                         .await?;
+
                     continue;
                 }
 

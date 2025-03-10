@@ -1,8 +1,5 @@
-use std::{
-    collections::HashMap, convert::TryInto, error::Error, fs, io::Read, path::PathBuf, sync::Arc,
-};
+use std::{collections::HashMap, error::Error, fs, io::Read, path::PathBuf, sync::Arc};
 
-use db::DatabaseError;
 use hebi::prelude::*;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -136,77 +133,6 @@ pub enum AlertEventType {
     },
 }
 
-impl From<AlertEventType> for surrealdb::sql::Value {
-    fn from(value: AlertEventType) -> Self {
-        match value {
-            AlertEventType::Follow { follower } => {
-                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "Follow".into(),
-                    "follower".into() => follower.into()
-                }))
-            }
-            AlertEventType::Raid { from, viewers } => {
-                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "Raid".into(),
-                    "from".into() => from.into(),
-                    "viewers".into() => viewers.into(),
-                }))
-            }
-            AlertEventType::Subscribe { subscriber, tier } => {
-                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "Subscribe".into(),
-                    "subscriber".into() => subscriber.into(),
-                    "tier".into() => tier.into(),
-                }))
-            }
-            AlertEventType::ReSubscribe {
-                subscriber,
-                tier,
-                subscribed_for,
-                streak,
-            } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                "type".into() => "ReSubscribe".into(),
-                "subscriber".into() => subscriber.into(),
-                "tier".into() => tier.into(),
-                "subscribed_for".into() => subscribed_for.into(),
-                "streak".into() => streak.into(),
-            })),
-            AlertEventType::GiftSub {
-                gifter,
-                total,
-                tier,
-            } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                "type".into() => "GiftSub".into(),
-                "gifter".into() => gifter.into(),
-                "total".into() => total.into(),
-                "tier".into() => tier.into(),
-            })),
-            AlertEventType::GiftedSub { gifted, tier } => {
-                surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                    "type".into() => "GiftedSub".into(),
-                    "gifted".into() => gifted.into(),
-                    "tier".into() => tier.into(),
-                }))
-            }
-            AlertEventType::Bits {
-                is_anonymous,
-                cheerer,
-                bits,
-                message,
-            } => surrealdb::sql::Value::Object(surrealdb::sql::Object(collection! {
-                "type".into() => "Bits".into(),
-                "cheerer".into() => if is_anonymous {
-                    "Anonymous".into()
-                } else {
-                    cheerer.into()
-                },
-                "bits".into() => bits.into(),
-                "message".into() => message.into(),
-            })),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Alert {
     new: bool,
@@ -321,112 +247,6 @@ macro_rules! string {
     }};
 }
 
-// This allows me to implement traits on external types
-// "Newtype pattern"
-pub struct Wrapper<T>(pub T);
-
-use surrealdb::sql::{Array, Object, Value};
-
-impl TryFrom<Wrapper<Value>> for Object {
-    type Error = DatabaseError;
-    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
-        match val.0 {
-            Value::Object(obj) => Ok(obj),
-            _ => Err(DatabaseError::NotObject),
-        }
-    }
-}
-
-impl TryFrom<Wrapper<Value>> for Array {
-    type Error = DatabaseError;
-    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
-        match val.0 {
-            Value::Array(obj) => Ok(obj),
-            _ => Err(DatabaseError::NotArray),
-        }
-    }
-}
-
-impl TryFrom<Wrapper<Value>> for i64 {
-    type Error = DatabaseError;
-    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
-        match val.0 {
-            Value::Number(obj) => Ok(obj.as_int()),
-            _ => Err(DatabaseError::NotI64),
-        }
-    }
-}
-
-impl TryFrom<Wrapper<Value>> for bool {
-    type Error = DatabaseError;
-    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
-        match val.0 {
-            Value::False => Ok(false),
-            Value::True => Ok(true),
-            _ => Err(DatabaseError::NotBool),
-        }
-    }
-}
-
-impl TryFrom<Wrapper<Value>> for String {
-    type Error = DatabaseError;
-    fn try_from(val: Wrapper<Value>) -> Result<Self, Self::Error> {
-        match val.0 {
-            Value::Strand(strand) => Ok(strand.as_string()),
-            Value::Thing(thing) => Ok(thing.to_string()),
-            _ => Err(DatabaseError::NotString),
-        }
-    }
-}
-
-pub trait TakeImpl<T> {
-    fn take_impl(&mut self, key: &str) -> Result<Option<T>, DatabaseError>;
-}
-
-impl TakeImpl<String> for Object {
-    fn take_impl(&mut self, key: &str) -> Result<Option<String>, DatabaseError> {
-        let value = self.remove(key).map(|v| Wrapper(v).try_into());
-        match value {
-            None => Ok(None),
-            Some(Ok(value)) => Ok(Some(value)),
-            Some(Err(ex)) => Err(ex),
-        }
-    }
-}
-
-impl TakeImpl<bool> for Object {
-    fn take_impl(&mut self, key: &str) -> Result<Option<bool>, DatabaseError> {
-        Ok(self.remove(key).map(|v| v.is_true()))
-    }
-}
-
-impl TakeImpl<i64> for Object {
-    fn take_impl(&mut self, key: &str) -> Result<Option<i64>, DatabaseError> {
-        let value = self.remove(key).map(|v| Wrapper(v).try_into());
-        match value {
-            None => Ok(None),
-            Some(Ok(value)) => Ok(Some(value)),
-            Some(Err(ex)) => Err(ex),
-        }
-    }
-}
-
-pub trait TakeVal {
-    fn take_val<T>(&mut self, key: &str) -> Result<T, DatabaseError>
-    where
-        Self: TakeImpl<T>;
-}
-
-impl<S> TakeVal for S {
-    fn take_val<T>(&mut self, key: &str) -> Result<T, DatabaseError>
-    where
-        Self: TakeImpl<T>,
-    {
-        let value: Option<T> = TakeImpl::take_impl(self, key)?;
-        value.ok_or_else(|| DatabaseError::PropertyNotFound(key.to_string()))
-    }
-}
-
 #[derive(Default, Debug)]
 pub struct CommandsLoader {
     commands: HashMap<String, String>,
@@ -502,8 +322,8 @@ impl CommandsLoader {
 }
 
 impl ModuleLoader for CommandsLoader {
-    fn load(&self, path: &str) -> hebi::Result<Cow<'static, str>> {
-        Ok(Cow::owned(
+    fn load(&self, path: &str) -> hebi::Result<hebi::Cow<'static, str>> {
+        Ok(hebi::Cow::owned(
             self.commands
                 .get(path)
                 .ok_or_else(|| hebi::error!("failed to load module {path}"))?

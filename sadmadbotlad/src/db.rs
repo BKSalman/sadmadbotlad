@@ -1,12 +1,11 @@
-use std::{collections::BTreeMap, convert::TryInto};
-
 use serde::{Deserialize, Serialize};
 use surrealdb::{
-    sql::{Array, Datetime, Object, Value},
-    Datastore, Session,
+    engine::local::{Db, RocksDb},
+    sql::Datetime,
+    RecordId, RecordIdKey, Surreal,
 };
 
-use crate::{collection, AlertEventType, TakeVal, Wrapper, APP};
+use crate::{AlertEventType, APP};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DatabaseError {
@@ -45,128 +44,56 @@ struct AlertDB {
 }
 
 pub struct Store {
-    ds: Datastore,
-    session: Session,
+    db: Surreal<Db>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DbEvent {
+    alert_type: AlertEventType,
+    ctime: Datetime,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DbEventQuery {
+    pub id: RecordId,
+    pub alert_type: AlertEventType,
+    pub ctime: surrealdb::Datetime,
 }
 
 impl Store {
     pub async fn new() -> Result<Self, DatabaseError> {
-        let ds = Datastore::new(&format!("file://{}", APP.config.database_path)).await?;
-        let session = Session::for_db("activity_feed", "events");
+        let db = Surreal::new::<RocksDb>(&APP.config.database_path).await?;
 
-        Ok(Self { ds, session })
+        db.use_ns("activity_feed").use_db("events").await?;
+
+        Ok(Self { db })
     }
 
-    pub async fn new_event(&self, alert: AlertEventType) -> Result<String, DatabaseError> {
-        let sql = "CREATE events CONTENT $data RETURN id";
-
-        let mut data: Object = Wrapper(alert.into()).try_into()?;
-
-        let now = Datetime::default().timestamp_nanos_opt().unwrap();
-
-        data.insert("ctime".into(), now.into());
-
-        let vars: BTreeMap<String, Value> = collection! {
-            "data".into() => data.into()
-        };
-
-        let res = self
-            .ds
-            .execute(sql, &self.session, Some(vars), false)
-            .await?;
-
-        let first_val = res
-            .into_iter()
-            .next()
-            .map(|r| r.result)
-            .expect("id not returned")?;
-
-        if let Value::Object(mut val) = first_val.first() {
-            return val.take_val::<String>("id");
-        }
-
-        Err(DatabaseError::EventNotReturned)
-    }
-
-    pub async fn get_events(&self) -> Result<Vec<Object>, DatabaseError> {
-        let sql = "SELECT * from events ORDER BY ctime ASC";
-
-        let res = self.ds.execute(sql, &self.session, None, false).await?;
-
-        let res = res.into_iter().next().expect("no response");
-
-        let arr: Array = Wrapper(res.result?).try_into()?;
-
-        arr.into_iter()
-            .map(|value| Wrapper(value).try_into())
-            .collect()
-    }
-
-    pub async fn get_event(&self, id: &str) -> Result<Object, DatabaseError> {
-        let sql = format!("SELECT * FROM {}", id);
-
-        // let mut vars: BTreeMap<String, Value> = collection! {};
-
-        // let obj: Object = Wrapper(filter).try_into()?;
-        // sql.push_str(" WHERE");
-        // for (idx, (k, v)) in obj.into_iter().enumerate() {
-        //     // SELECT * FROM events WHERE id = $w0
-        //     // "w0" => "{v}"
-
-        //     let var = format!("w{idx}");
-        //     sql.push_str(&format!(" {k} = ${var}"));
-        //     vars.insert(var, v);
-        // }
-
-        let res = self.ds.execute(&sql, &self.session, None, false).await?;
-
-        let first_val = res
-            .into_iter()
-            .next()
-            .map(|r| r.result)
-            .expect("no response")?;
-
-        if let Value::Object(val) = first_val.first() {
-            return Ok(val);
-        }
-
-        Err(DatabaseError::EventNotFound)
-    }
-
-    pub async fn delete_events_table(&self) -> Result<(), DatabaseError> {
-        let sql = "DELETE events";
-
-        let res = self.ds.execute(sql, &self.session, None, false).await?;
-
-        let res = res.into_iter().next().expect("Did not get a response");
-
-        res.result?;
-
-        tracing::debug!("Deleted events table");
-
-        Ok(())
-    }
-
-    pub async fn rename_field(
+    pub async fn new_event(
         &self,
-        field_name: String,
-        new_field_name: String,
-    ) -> Result<(), DatabaseError> {
-        let sql = format!("UPDATE events SET {} = {}", new_field_name, field_name);
-        self.ds.execute(&sql, &self.session, None, false).await?;
+        alert: AlertEventType,
+    ) -> Result<Option<DbEventQuery>, DatabaseError> {
+        let now = Datetime::default();
 
-        let sql = format!("UPDATE events SET {} = NONE;", field_name);
-        let res = self.ds.execute(&sql, &self.session, None, false).await?;
-        tracing::debug!("{:#?}", res);
-
-        Ok(())
+        Ok(self
+            .db
+            .create("events")
+            .content(DbEvent {
+                alert_type: alert,
+                ctime: now,
+            })
+            .await?)
     }
 
-    pub async fn capitalize_value(&self) -> Result<(), DatabaseError> {
-        let sql = String::from(r#"UPDATE events SET type = "Raid" WHERE type = "raid" RETURN id;"#);
-        let res = self.ds.execute(&sql, &self.session, None, false).await?;
-        tracing::error!("{:#?}", res);
+    pub async fn get_events(&self) -> Result<Vec<DbEventQuery>, DatabaseError> {
+        Ok(self.db.select("events").await?)
+    }
 
-        Ok(())
+    pub async fn get_event(&self, id: RecordIdKey) -> Result<Option<DbEventQuery>, DatabaseError> {
+        Ok(self.db.select(("events", id)).await?)
+    }
+
+    pub async fn delete_events_table(&self) -> Result<Vec<DbEventQuery>, DatabaseError> {
+        Ok(self.db.delete("events").await?)
     }
 }
