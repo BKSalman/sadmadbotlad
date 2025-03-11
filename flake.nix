@@ -1,6 +1,4 @@
 {
-  description = "sadmadbotlad flake";
-
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
@@ -17,26 +15,32 @@
         pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
 
         libPath = with pkgs; lib.makeLibraryPath [
+            snappy
             openssl
             libiconv
             pkg-config
-            rocksdb
+            (rocksdb.override { enableLiburing = false; })
             dbus
             mpv
+            llvmPackages.libclang
+            llvmPackages.libcxxClang
         ];
 
         craneLib = crane.mkLib pkgs;
 
         nativeBuildInputs = with pkgs; [
+            snappy
             dbus
             alsa-lib
             llvmPackages.libclang
             llvmPackages.libcxxClang
+            clang
             makeWrapper
             playerctl
         ];
 
         buildInputs = with pkgs; [
+            snappy
             dbus
             mpv
         ];
@@ -47,10 +51,12 @@
           inherit buildInputs nativeBuildInputs;
 
           BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-          ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
+          ROCKSDB_LIB_DIR = "${pkgs.rocksdb.override { enableLiburing = false; }}/lib/";
+          SNAPPY_LIB_DIR = "${pkgs.snappy}/lib/";
           ROCKSDB_STATIC = "true";
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-          # NIX_LDFLAGS="-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";
+          LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
+          LD_LIBRARY_PATH = "${libPath}";
+          # NIX_LDFLAGS = "-l${pkgs.llvmPackages.libcxx}";
         });
 
         frontendCraneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.latest.default.override {
@@ -66,6 +72,11 @@
         });
 
         frontendPackage = with pkgs; frontendCraneLib.buildTrunkPackage {
+          wasm-bindgen-cli = pkgs.wasm-bindgen-cli.override {
+            version = "0.2.100";
+            hash = "lib.fakeHash";
+            cargoHash = "lib.fakeHash";
+          };
           src = lib.cleanSourceWith {
               src = ./frontend;
               filter = path: type:
@@ -92,7 +103,8 @@
           packages = rec {
             sadmadbotlad = craneLib.buildPackage {
               BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-              ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
+              ROCKSDB_LIB_DIR = "${pkgs.rocksdb.override { enableLiburing = false; }}/lib/";
+              SNAPPY_LIB_DIR = "${pkgs.snappy}/lib/";
               ROCKSDB_STATIC = "true";
               LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               LD_LIBRARY_PATH = "${libPath}";
@@ -138,9 +150,10 @@
             
             # NIX_LDFLAGS = "-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";
             BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-            ROCKSDB_LIB_DIR = "${pkgs.rocksdb}/lib/";
+            ROCKSDB_LIB_DIR = "${pkgs.rocksdb.override { enableLiburing = false; }}/lib/";
+            SNAPPY_LIB_DIR = "${pkgs.snappy}/lib/";
             ROCKSDB_STATIC = "true";
+            LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
             LD_LIBRARY_PATH = "${libPath}";
           };
       });
