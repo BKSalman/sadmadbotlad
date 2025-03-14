@@ -449,7 +449,8 @@ impl TwitchToken {
         std::fs::write(
             &APP.config.config_path,
             toml::to_string(&configs).expect("parse api info struct to string"),
-        )?;
+        )
+        .ok();
 
         self.api_info.twitch_refresh_token = configs.twitch.twitch_refresh_token;
         self.api_info.twitch_access_token = configs.twitch.twitch_access_token;
