@@ -162,6 +162,8 @@
                 extensions = [ "rust-src" "rust-analyzer" ];
                 targets = [ "wasm32-unknown-unknown" ];
               })
+
+              trunk
             ];
             
             # NIX_LDFLAGS = "-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";

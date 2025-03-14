@@ -222,6 +222,8 @@ async fn read(
                                     SessionStatus::Connected => {
                                         let session_id = session.id;
 
+                                        tracing::info!("Subscribing to eventsubs...");
+
                                         online_eventsub(token_sender.clone(), &session_id).await?;
                                         offline_eventsub(token_sender.clone(), &session_id).await?;
                                         follow_eventsub(token_sender.clone(), &session_id).await?;

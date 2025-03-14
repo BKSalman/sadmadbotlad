@@ -1,7 +1,6 @@
 use futures::{channel::mpsc::Sender, stream::SplitStream, SinkExt, StreamExt};
 use gloo::console;
 use gloo_net::websocket::{futures::WebSocket, Message};
-use serde_json::Value;
 use wasm_bindgen_futures::spawn_local;
 use yew::{html::Scope, prelude::*};
 
@@ -81,106 +80,7 @@ impl Component for Activity {
             }
             Msg::Db(db) => {
                 let (_, db) = db.split_once("::").expect("split db");
-                let db_alerts: Vec<Value> = serde_json::from_str(&db).expect("db alerts");
-                let db_alerts: Vec<Alert> = db_alerts
-                    .into_iter()
-                    .map(|e| match e["type"].as_str().expect("alert type") {
-                        "Follow" => {
-                            let follower = e["follower"].as_str().expect("follower").to_string();
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::Follow { follower },
-                            }
-                        }
-                        "Subscribe" => {
-                            let subscriber =
-                                e["subscriber"].as_str().expect("subscriber").to_string();
-                            let tier = e["tier"].as_str().expect("tier").to_string();
-
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::Subscribe { subscriber, tier },
-                            }
-                        }
-                        "ReSubscribe" => {
-                            let subscriber =
-                                e["subscriber"].as_str().expect("subscriber").to_string();
-
-                            let tier = e["tier"].as_str().expect("tier").to_string();
-
-                            let subscribed_for =
-                                e["subscribed_for"].as_u64().expect("subscribed for");
-
-                            let streak = e["streak"].as_u64().expect("subscribed for");
-
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::ReSubscribe {
-                                    subscriber,
-                                    tier,
-                                    subscribed_for,
-                                    streak,
-                                },
-                            }
-                        }
-                        "Raid" => {
-                            let from = e["from"].as_str().expect("from").to_string();
-
-                            let viewers = e["viewers"].as_u64().expect("viewers");
-
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::Raid { from, viewers },
-                            }
-                        }
-                        "Bits" => {
-                            let cheerer = e["cheerer"].as_str().expect("from").to_string();
-
-                            let message = e["message"].as_str().expect("from").to_string();
-
-                            let is_anonymous = e["is_anonymous"].as_bool().expect("from");
-
-                            let bits = e["viewers"].as_u64().expect("viewers");
-
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::Bits {
-                                    message,
-                                    is_anonymous,
-                                    cheerer,
-                                    bits,
-                                },
-                            }
-                        }
-                        "GiftSub" => {
-                            let gifter = e["gifter"].as_str().expect("gifter").to_string();
-
-                            let total = e["total"].as_u64().expect("total");
-
-                            let tier = e["tier"].as_str().expect("tier").to_string();
-
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::GiftSub {
-                                    gifter,
-                                    total,
-                                    tier,
-                                },
-                            }
-                        }
-                        "GiftedSub" => {
-                            let gifted = e["gifted"].as_str().expect("gifted").to_string();
-
-                            let tier = e["tier"].as_str().expect("tier").to_string();
-
-                            Alert {
-                                new: false,
-                                r#type: AlertEventType::GiftedSub { tier, gifted },
-                            }
-                        }
-                        _ => Alert::default(),
-                    })
-                    .collect();
+                let db_alerts: Vec<Alert> = serde_json::from_str(&db).expect("db alerts");
                 self.alerts.extend(db_alerts);
                 true
             }

@@ -61,8 +61,6 @@ impl App {
             optional -db, --database-path database_path: String
         };
 
-        tracing::info!("flags: {:?}", flags);
-
         Self {
             config: Config {
                 database_path: flags.database_path.unwrap_or("database.db".into()),

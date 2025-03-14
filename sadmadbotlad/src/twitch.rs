@@ -1,10 +1,4 @@
-use std::{
-    fs,
-    net::{Ipv4Addr, SocketAddrV4},
-    sync::Arc,
-};
-
-use chrono::{Duration, Local};
+use chrono::{Duration, Utc};
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -16,6 +10,9 @@ use tokio::{
 use tokio_tungstenite::{accept_async, tungstenite};
 
 use crate::{ApiInfo, APP};
+
+// TODO: move AUTH_LINK to config file instead
+const AUTH_LINK: &'static str = include_str!("../auth_link.txt");
 
 #[derive(thiserror::Error, Debug)]
 pub enum TwitchError {
@@ -164,15 +161,15 @@ pub async fn get_title(
 
 pub async fn get_access_token_from_code(
     code: &str,
-    api_info: Arc<ApiInfo>,
+    api_info: &mut TwitchApiInfo,
 ) -> Result<(), eyre::Report> {
     let http_client = Client::new();
 
     let res = http_client
         .post("https://id.twitch.tv/oauth2/token")
         .form(&json!({
-            "client_id": api_info.twitch.client_id,
-            "client_secret": api_info.twitch.client_secret,
+            "client_id": api_info.client_id,
+            "client_secret": api_info.client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": "http://localhost:8080/code",
@@ -195,15 +192,8 @@ pub async fn get_access_token_from_code(
         res["scope"].as_array().unwrap()
     );
 
-    let mut api_info = (*api_info).clone();
-
-    api_info.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
-    api_info.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
-
-    fs::write(
-        &APP.config.config_path,
-        toml::to_string(&api_info).expect("parse api info struct to string"),
-    )?;
+    api_info.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
+    api_info.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
     Ok(())
 }
@@ -293,16 +283,14 @@ pub async fn run_ads(
     Ok(res.data[0].retry_after)
 }
 
-pub async fn access_token(api_info: Arc<ApiInfo>) -> eyre::Result<()> {
-    let auth_link = std::fs::read_to_string("auth_link.txt")?;
-    open::that(auth_link)?;
+pub async fn access_token(api_info: &mut TwitchApiInfo) -> eyre::Result<()> {
+    open::that(AUTH_LINK)?;
 
     let port = 4040;
 
-    tracing::info!("Auth service on port {port}");
-    let ip_address = Ipv4Addr::new(127, 0, 0, 1);
-    let address = SocketAddrV4::new(ip_address, port);
-    let listener = TcpListener::bind(address).await?;
+    tracing::info!("Auth service running on port {port}");
+
+    let listener = TcpListener::bind(("127.0.0.1", port)).await?;
 
     let Ok((stream, _)) = listener.accept().await else {
         return Err(eyre::eyre!("Code Websocket failed"));
@@ -338,7 +326,7 @@ pub struct TwitchApiInfo {
     pub twitch_access_token: String,
     pub twitch_refresh_token: String,
     #[serde(default)]
-    pub expires_at: chrono::NaiveDateTime,
+    pub expires_at: chrono::DateTime<Utc>,
 }
 
 pub struct TwitchToken {
@@ -381,9 +369,9 @@ impl TwitchToken {
     }
 
     pub async fn update_token(&mut self) -> Result<(), TwitchError> {
-        let now = chrono::DateTime::from_timestamp_millis(Local::now().timestamp_millis()).unwrap();
+        let now = Utc::now();
 
-        if self.api_info.expires_at > now.naive_utc() {
+        if self.api_info.expires_at > now {
             return Ok(());
         }
 
@@ -398,20 +386,36 @@ impl TwitchToken {
             .await?;
 
         if !res.status().is_success() {
-            tracing::info!("token expired. Refreshing...");
-            self.refresh_access_token().await?;
+            tracing::info!("Twitch access token expired");
+
+            if let Err(e) = self.refresh_access_token().await {
+                match e {
+                    TwitchError::TwitchApiError {
+                        request_name: _,
+                        status: _,
+                        message: _,
+                    } => {
+                        access_token(&mut self.api_info)
+                            .await
+                            .map_err(|_e| TwitchError::TokenError)?;
+                    }
+                    e => {
+                        return Err(e);
+                    }
+                }
+            }
+
+            tracing::info!("Finished refreshing token");
         }
 
-        self.api_info.expires_at = now
-            .naive_utc()
-            .checked_add_signed(Duration::seconds(3600))
-            .unwrap();
+        self.api_info.expires_at = now.checked_add_signed(Duration::seconds(3600)).unwrap();
 
         Ok(())
     }
 
     pub async fn refresh_access_token(&mut self) -> Result<(), TwitchError> {
-        tracing::info!("Refreshing token");
+        tracing::info!("Refreshing twitch access token...");
+
         let http_client = Client::new();
 
         let res = http_client
@@ -435,14 +439,14 @@ impl TwitchToken {
 
         let res = res.json::<Value>().await?;
 
-        let config_str = fs::read_to_string(&APP.config.config_path)?;
+        let config_str = std::fs::read_to_string(&APP.config.config_path)?;
 
         let mut configs = toml::from_str::<ApiInfo>(&config_str)?;
 
         configs.twitch.twitch_refresh_token = res["refresh_token"].as_str().unwrap().to_string();
         configs.twitch.twitch_access_token = res["access_token"].as_str().unwrap().to_string();
 
-        fs::write(
+        std::fs::write(
             &APP.config.config_path,
             toml::to_string(&configs).expect("parse api info struct to string"),
         )?;

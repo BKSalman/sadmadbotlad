@@ -1,5 +1,4 @@
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
@@ -12,14 +11,7 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
-use crate::{db::Store, Alert, AlertEventType, APP};
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Event {
-    new: bool,
-    alert_type: AlertEventType,
-    ctime: surrealdb::Datetime,
-}
+use crate::{db::Store, Alert, APP};
 
 pub async fn ws_server(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
@@ -113,10 +105,9 @@ async fn handle_connection(
                         .get_events()
                         .await?
                         .into_iter()
-                        .map(|e| Event {
+                        .map(|e| Alert {
                             new: false,
-                            alert_type: e.alert_type,
-                            ctime: e.ctime,
+                            r#type: e.alert_type,
                         })
                         .rev()
                         .collect();
