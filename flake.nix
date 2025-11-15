@@ -108,12 +108,6 @@
             };
           };
         };
-
-        serverArtifacts = craneLib.buildDepsOnly ({
-          pname = "server";
-          src = craneLib.cleanCargoSource ./frontend/server;
-          inherit buildInputs nativeBuildInputs;
-        });
       in
         {
           packages = rec {
@@ -143,14 +137,6 @@
             };
 
             frontend = frontendPackage;
-
-            server = craneLib.buildPackage {
-              src = craneLib.path ./frontend/server;
-
-              inherit buildInputs nativeBuildInputs ;
-
-              cargoArtifacts = serverArtifacts;
-            };
 
             default = sadmadbotlad;
           };

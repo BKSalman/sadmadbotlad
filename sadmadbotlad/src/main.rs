@@ -1,15 +1,24 @@
-use std::sync::Arc;
-
+use axum::Router;
+use axum::http::StatusCode;
+use axum::routing::get_service;
 use futures_util::TryFutureExt;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc;
+use tower_http::services::{ServeDir, ServeFile};
+use tower_http::trace::TraceLayer;
+
 use sadmadbotlad::db::Store;
+use sadmadbotlad::eventsub::eventsub;
+use sadmadbotlad::irc::irc_connect;
 use sadmadbotlad::obs_websocket::obs_websocket;
 use sadmadbotlad::song_requests::{QueueMessages, SongRequest, SrQueue};
 use sadmadbotlad::sr_ws_server::sr_ws_server;
-use sadmadbotlad::twitch::{access_token, TwitchToken, TwitchTokenMessages};
+use sadmadbotlad::twitch::{TwitchToken, TwitchTokenMessages, access_token};
 use sadmadbotlad::ws_server::ws_server;
-use sadmadbotlad::{eventsub::eventsub, irc::irc_connect};
-use sadmadbotlad::{flatten, logging, Alert, ApiInfo, MainError, APP};
-use tokio::sync::mpsc;
+use sadmadbotlad::{APP, Alert, ApiInfo, MainError, flatten, logging};
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
@@ -23,7 +32,13 @@ async fn main() -> Result<(), MainError> {
         std::fs::write(&APP.config.config_path, toml::to_string(&api_info).unwrap())?;
     }
 
-    run(api_info).await?;
+    if let Err(e) = tokio::try_join!(
+        run(api_info),
+        run_frontend(APP.config.frontend_port, &APP.config.static_path)
+    ) {
+        eprintln!("Sadmadladbot failed: {e}");
+    }
+
     Ok(())
 }
 
@@ -81,6 +96,32 @@ async fn run(api_info: ApiInfo) -> Result<(), MainError> {
             .map_err(Into::into)
         ))
     )?;
+
+    Ok(())
+}
+
+async fn run_frontend(port: u16, static_path: impl AsRef<Path>) -> Result<(), MainError> {
+    let static_path = static_path.as_ref();
+
+    let router = Router::new().fallback_service(
+        Router::new().nest_service(
+            "/",
+            get_service(ServeDir::new(static_path).fallback(ServeFile::new(
+                PathBuf::from(static_path).join("index.html"),
+            )))
+            .handle_error(|error| async move {
+                tracing::error!(?error, "failed serving static file");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })
+            .layer(TraceLayer::new_for_http()),
+        ),
+    );
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
+
+    let listener = TcpListener::bind(addr).await?;
+
+    axum::serve(listener, router).await?;
 
     Ok(())
 }

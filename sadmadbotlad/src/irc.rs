@@ -3,13 +3,12 @@ use std::{collections::HashMap, fmt::Display, panic::AssertUnwindSafe, path::Pat
 use crate::{
     commands::{run_hebi, Context},
     db::Store,
-    flatten,
-    song_requests::{play_song, setup_mpv, QueueMessages, SongRequest},
+    song_requests::{play_song, setup_mpv, QueueMessages, SongRequest, SongRequestsError},
     twitch::{TwitchError, TwitchTokenMessages},
     Alert, CommandsError, CommandsLoader, MainError, APP,
 };
 use futures::FutureExt;
-use futures_util::{stream::SplitSink, SinkExt, StreamExt, TryFutureExt};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use libmpv::Mpv;
 use notify::{RecommendedWatcher, Watcher};
 use tokio::{
@@ -56,6 +55,9 @@ pub enum IrcError {
 
     #[error("no reply tag")]
     NoReplyTag,
+
+    #[error(transparent)]
+    SongRequest(#[from] SongRequestsError),
 }
 
 pub async fn irc_connect(
@@ -75,11 +77,9 @@ pub async fn irc_connect(
         std::thread::spawn(move || play_song(mpv, song_receiver, queue_sender))
     };
 
-    tokio::try_join!(flatten(tokio::spawn(
-        read(queue_sender, token_sender, mpv, alerts_sender, store,).map_err(Into::into)
-    )))?;
+    read(queue_sender, token_sender, mpv, alerts_sender, store).await?;
 
-    let _ = t_handle.join().expect("play_song thread");
+    t_handle.join().expect("play_song thread")?;
 
     Ok(())
 }
@@ -196,26 +196,22 @@ async fn read(
                 Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                     let parsed_msg = parse_irc(&msg);
 
-                    let (command, args) = if parsed_msg.tags.get_reply().is_some() {
+                    let message = if parsed_msg.tags.get_reply().is_some() {
                         // remove mention
-                        let (_, message) =
-                            parsed_msg.message.split_once(' ').expect("remove mention");
-
-                        if !message.starts_with(APP.config.cmd_delim) {
-                            continue;
-                        }
-
-                        message.split_once(' ').unwrap_or((message, ""))
-                    } else {
-                        if !parsed_msg.message.starts_with(APP.config.cmd_delim) {
-                            continue;
-                        }
-
                         parsed_msg
                             .message
                             .split_once(' ')
-                            .unwrap_or((&parsed_msg.message, ""))
+                            .expect("remove mention")
+                            .1
+                    } else {
+                        &parsed_msg.message
                     };
+
+                    if !message.starts_with(APP.config.cmd_delim) {
+                        continue;
+                    }
+
+                    let (command, args) = message.split_once(' ').unwrap_or((message, ""));
 
                     let locked_commands = commands.lock().await;
 
@@ -262,14 +258,21 @@ async fn read(
                         irc_sender
                             .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
                             .await?;
-                    } else if msg.contains("RECONNECT") {
-                        tracing::debug!("reconnect with url");
+                    } else if msg.contains(":tmi.twitch.tv RECONNECT") {
+                        tracing::debug!("reconnect");
                         continue 'restart;
                     } else {
-                        // tracing::info!("{msg}");
+                        tracing::info!("received text message: {msg}");
                     }
                 }
-                Ok(_) => {}
+                Ok(Message::Close(c)) => {
+                    tracing::debug!("IRC connection closed, reason: {c:?}");
+                    continue 'restart;
+                }
+                Ok(_) => {
+                    // received something weird, just restart I guess
+                    continue 'restart;
+                }
                 Err(e) => {
                     tracing::error!("IRC websocket error: {e}");
                     continue 'restart;

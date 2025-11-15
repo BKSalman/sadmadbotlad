@@ -1,16 +1,16 @@
-use std::{collections::HashMap, error::Error, fs, io::Read, path::PathBuf, sync::Arc};
-
 use hebi::prelude::*;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use song_requests::Queue;
+use std::{collections::HashMap, error::Error, fs, io::Read, path::PathBuf, sync::Arc};
 use tokio::task::JoinHandle;
-use tracing::{metadata::LevelFilter, Level};
+use tracing::{Level, metadata::LevelFilter};
 use tracing_appender::rolling;
 use tracing_subscriber::{
-    fmt::writer::MakeWriterExt, prelude::__tracing_subscriber_SubscriberExt,
-    util::SubscriberInitExt, EnvFilter,
+    EnvFilter, fmt::writer::MakeWriterExt, prelude::__tracing_subscriber_SubscriberExt,
+    util::SubscriberInitExt,
 };
+
+use song_requests::Queue;
 use twitch::TwitchApiInfo;
 
 pub mod commands;
@@ -43,6 +43,8 @@ pub struct Config {
     pub manual: bool,
     pub cmd_delim: char,
     pub port: u16,
+    pub frontend_port: u16,
+    pub static_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -55,6 +57,9 @@ impl App {
         let flags = xflags::parse_or_exit! {
             optional -cd,--cmd-delim cmd_delim: char
             optional -p,--port port: u16
+            optional -fp,--frontend-port frontend_port: u16
+            /// Frontend static files path to serve
+            optional -s, --static-path static_path: PathBuf
             optional -m,--manual
             optional -c, --config-path config_path: PathBuf
             optional -co, --commands-path commands_path: PathBuf
@@ -69,6 +74,8 @@ impl App {
                 manual: flags.manual,
                 cmd_delim: flags.cmd_delim.unwrap_or('!'),
                 port: flags.port.unwrap_or(3000),
+                frontend_port: flags.frontend_port.unwrap_or(8080),
+                static_path: flags.static_path.unwrap_or_default(),
             },
         }
     }
@@ -240,9 +247,7 @@ macro_rules! collection {
 
 #[macro_export]
 macro_rules! string {
-    ($s: expr) => {{
-        String::from($s)
-    }};
+    ($s: expr) => {{ String::from($s) }};
 }
 
 #[derive(Default, Debug)]
@@ -333,7 +338,7 @@ impl ModuleLoader for CommandsLoader {
 pub fn logging() {
     if let Err(_e) = std::env::var("RUST_LOG") {
         println!("no log level specified, defaulting to debug level for sadmadbotlad crate only");
-        std::env::set_var("RUST_LOG", "none,sadmadbotlad=debug");
+        unsafe { std::env::set_var("RUST_LOG", "none,sadmadbotlad=debug") };
     }
 
     let logs_dir = dirs::cache_dir()

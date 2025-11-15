@@ -30,27 +30,17 @@ pub async fn ws_server(
             .expect("connected streams should have a peer address");
 
         tracing::debug!("Peer address: {}", peer);
+        let store = store.clone();
+        let alerts_sender = alerts_sender.clone();
 
-        tokio::spawn(accept_connection(
-            alerts_sender.to_owned(),
-            peer,
-            stream,
-            store.clone(),
-        ));
+        tokio::spawn(async move {
+            if let Err(e) = handle_connection(alerts_sender, peer, stream, store).await {
+                tracing::error!("Error processing connection: {}", e)
+            }
+        });
     }
 
     Ok(())
-}
-
-async fn accept_connection(
-    alerts_sender: tokio::sync::broadcast::Sender<Alert>,
-    peer: SocketAddr,
-    stream: TcpStream,
-    store: Arc<Store>,
-) {
-    if let Err(e) = handle_connection(alerts_sender, peer, stream, store).await {
-        tracing::error!("Error processing connection: {}", e)
-    }
 }
 
 async fn handle_connection(
@@ -65,31 +55,28 @@ async fn handle_connection(
 
     let (ws_sender, mut ws_receiver) = ws_stream.split();
 
-    let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
-
-    let t_handle = tokio::spawn(handle_front_end_events(
-        alerts_receiver,
-        ws_sender.clone(),
-        peer,
-    ));
+    let (ws_sender_tx, ws_sender_rx) = tokio::sync::mpsc::channel(1);
 
     let forever = {
-        let ws_sender = ws_sender.clone();
-
+        let tx = ws_sender_tx.clone();
         tokio::task::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
 
             loop {
                 interval.tick().await;
-                ws_sender
-                    .lock()
-                    .await
-                    .send(Message::Ping(vec![]))
-                    .await
-                    .expect("send ping");
+                if let Err(e) = tx.send(Message::Ping(vec![])).await {
+                    tracing::error!("{e}");
+                }
             }
         })
     };
+
+    let t_handle = tokio::spawn(handle_front_end_events(
+        alerts_receiver,
+        ws_sender,
+        ws_sender_rx,
+        peer,
+    ));
 
     while let Some(msg) = ws_receiver.next().await {
         match msg {
@@ -114,9 +101,7 @@ async fn handle_connection(
 
                     let events = serde_json::to_string(&events)?;
 
-                    ws_sender
-                        .lock()
-                        .await
+                    ws_sender_tx
                         .send(Message::Text(format!("db::{}", events)))
                         .await?;
 
@@ -150,17 +135,24 @@ async fn handle_connection(
 
 async fn handle_front_end_events(
     mut front_end_event_receiver: tokio::sync::broadcast::Receiver<Alert>,
-    ws_sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>>,
+    mut ws_sender: SplitSink<WebSocketStream<TcpStream>, Message>,
+    mut ws_sender_rx: tokio::sync::mpsc::Receiver<Message>,
     _peer: SocketAddr,
 ) {
-    while let Ok(msg) = front_end_event_receiver.recv().await {
-        tracing::debug!("Sending Ws:: {msg:?}");
+    tokio::select! {
+        Ok(msg) = front_end_event_receiver.recv() => {
+            tracing::debug!("Sending Ws:: {msg:?}");
 
-        let alert = serde_json::to_string(&msg).expect("alert");
+            let alert = serde_json::to_string(&msg).expect("alert");
 
-        if let Err(e) = ws_sender.lock().await.send(Message::Text(alert)).await {
-            tracing::error!("{e}");
-            break;
+            if let Err(e) = ws_sender.send(Message::Text(alert)).await {
+                tracing::error!("{e}");
+            }
+        }
+        Some(send) = ws_sender_rx.recv() => {
+            if let Err(e) = ws_sender.send(send).await {
+                tracing::error!("{e}");
+            }
         }
     }
 }
