@@ -171,9 +171,13 @@ async fn run_frontend(port: u16, static_path: impl AsRef<Path>) -> anyhow::Resul
 
     tracing::info!("running frontend on port {port}");
 
-    let listener = TcpListener::bind(addr).await?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .with_context(|| "frontend tcp listener")?;
 
-    axum::serve(listener, router).await?;
+    axum::serve(listener, router)
+        .await
+        .with_context(|| "frontend axum server")?;
 
     Ok(())
 }
