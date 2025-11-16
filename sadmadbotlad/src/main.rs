@@ -14,7 +14,7 @@ use tower_http::trace::TraceLayer;
 use sadmadbotlad::eventsub::eventsub;
 use sadmadbotlad::irc::irc_connect;
 use sadmadbotlad::obs_websocket::obs_websocket;
-use sadmadbotlad::song_requests::{QueueMessages, SongRequest, SrQueue};
+use sadmadbotlad::song_requests::{QueueMessages, SongRequest, SrQueue, play_song, setup_mpv};
 use sadmadbotlad::sr_ws_server::sr_ws_server;
 use sadmadbotlad::twitch::{TwitchToken, TwitchTokenMessages, access_token};
 use sadmadbotlad::ws_server::ws_server;
@@ -59,8 +59,6 @@ async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
 
     let (alerts_sender, _) = tokio::sync::broadcast::channel::<Alert>(100);
 
-    let queue = SrQueue::new(api_info.clone(), song_sender, queue_receiver);
-
     let (db_tx, db_rx) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
@@ -81,6 +79,16 @@ async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
             }
         }
     });
+
+    let mpv = Arc::new(setup_mpv());
+
+    let queue = SrQueue::new(api_info.clone(), song_sender, queue_receiver);
+
+    {
+        let queue_sender = queue_sender.clone();
+        let mpv = mpv.clone();
+        std::thread::spawn(move || play_song(mpv, song_receiver, queue_sender));
+    }
 
     tokio::try_join!(
         flatten(tokio::spawn({
@@ -120,10 +128,10 @@ async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
             async move {
                 irc_connect(
                     alerts_sender.clone(),
-                    song_receiver,
-                    queue_sender.clone(),
+                    queue_sender,
                     token_sender.clone(),
                     db_tx.clone(),
+                    mpv,
                 )
                 .await
                 .with_context(|| "irc_connect")

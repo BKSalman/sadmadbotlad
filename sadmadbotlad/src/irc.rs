@@ -4,22 +4,19 @@ use crate::{
     APP, Alert, CommandsError, CommandsLoader,
     commands::{Context, run_hebi},
     db::DBMessage,
-    song_requests::{QueueMessages, SongRequest, SongRequestsError, play_song, setup_mpv},
+    song_requests::{QueueMessages, SongRequestsError},
     twitch::{TwitchError, TwitchTokenMessages},
 };
 use futures::FutureExt;
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use futures_util::{SinkExt, StreamExt};
 use libmpv::Mpv;
 use notify::{RecommendedWatcher, Watcher};
-use tokio::{
-    net::TcpStream,
-    sync::{
-        broadcast,
-        mpsc::{self, UnboundedSender},
-        oneshot,
-    },
+use tokio::sync::{
+    broadcast,
+    mpsc::{self, UnboundedSender},
+    oneshot,
 };
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[derive(thiserror::Error, Debug)]
 pub enum IrcError {
@@ -62,35 +59,25 @@ pub enum IrcError {
 
 pub async fn irc_connect(
     alerts_sender: broadcast::Sender<Alert>,
-    song_receiver: mpsc::Receiver<SongRequest>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     db_tx: std::sync::mpsc::Sender<DBMessage>,
+    mpv: Arc<Mpv>,
 ) -> Result<(), IrcError> {
     tracing::info!("Starting IRC");
 
-    let mpv = Arc::new(setup_mpv());
-
-    let t_handle = {
-        let mpv = mpv.clone();
-        let queue_sender = queue_sender.clone();
-        std::thread::spawn(move || play_song(mpv, song_receiver, queue_sender))
-    };
-
     read(queue_sender, token_sender, mpv, alerts_sender, db_tx).await?;
-
-    t_handle.join().expect("play_song thread")?;
 
     Ok(())
 }
 
 pub async fn irc_login(
-    ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    irc_sender: tokio::sync::mpsc::Sender<Message>,
     token_sender: UnboundedSender<TwitchTokenMessages>,
 ) -> Result<(), IrcError> {
     let cap = Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags").into());
 
-    ws_sender.send(cap).await?;
+    irc_sender.send(cap).await?;
 
     let (one_shot_sender, one_shot_receiver) = oneshot::channel();
 
@@ -102,13 +89,13 @@ pub async fn irc_login(
 
     let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_access_token).into());
 
-    ws_sender.send(pass_msg).await?;
+    irc_sender.send(pass_msg).await?;
 
     let nick_msg = Message::Text(format!("NICK {}", api_info.user).into());
 
-    ws_sender.send(nick_msg).await?;
+    irc_sender.send(nick_msg).await?;
 
-    ws_sender
+    irc_sender
         .send(Message::Text(String::from("JOIN #sadmadladsalman").into()))
         .await?;
 
@@ -166,9 +153,17 @@ async fn read(
 
         let (mut ws_sender, mut ws_receiver) = socket.split();
 
-        irc_login(&mut ws_sender, token_sender.clone()).await?;
-
         let (irc_sender, mut irc_receiver) = tokio::sync::mpsc::channel::<Message>(200);
+
+        tokio::spawn(async move {
+            while let Some(message) = irc_receiver.recv().await {
+                if let Err(e) = ws_sender.send(message).await {
+                    tracing::error!("Failed to send on twitch IRC websocket: {e}");
+                }
+            }
+        });
+
+        irc_login(irc_sender.clone(), token_sender.clone()).await?;
 
         let mut vm = run_hebi(
             irc_sender.clone(),
@@ -178,14 +173,6 @@ async fn read(
             queue_sender.clone(),
         )
         .await?;
-
-        tokio::spawn(async move {
-            while let Some(message) = irc_receiver.recv().await {
-                if let Err(e) = ws_sender.send(message).await {
-                    tracing::error!("Failed to send on twitch IRC websocket: {e}");
-                }
-            }
-        });
 
         while let Some(msg) = ws_receiver.next().await {
             match msg {

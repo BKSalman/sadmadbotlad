@@ -35,9 +35,14 @@ pub struct SongRequest {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct Queue {
-    pub current_song: Option<SongRequest>,
     pub queue: [Option<SongRequest>; 20],
     pub rear: usize,
+}
+
+impl Queue {
+    pub fn current_song(&self) -> Option<SongRequest> {
+        self.queue[0].clone()
+    }
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

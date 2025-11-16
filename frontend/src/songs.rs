@@ -58,7 +58,7 @@ impl Component for Songs {
             Err(_e) => Queue::default(),
         };
 
-        let queue = if let Some(current_song) = queue.current_song {
+        let queue = if let Some(current_song) = queue.current_song() {
             html! {
                 <div class="songs-container">
                     {"Current song"}
@@ -76,7 +76,7 @@ impl Component for Songs {
                     </div>
                     {"Queue"}
                     {
-                        queue.queue
+                        queue.queue[1..]
                         .into_iter()
                         .filter(|s| s.is_some()).map(|s| {
                             html_nested! {

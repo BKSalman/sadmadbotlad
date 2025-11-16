@@ -30,7 +30,6 @@ pub enum QueueMessages {
     GetCurrentSong(oneshot::Sender<Option<SongRequest>>),
     Enqueue(SongRequest),
     Dequeue,
-    ClearCurrentSong,
     Sr((String, String), oneshot::Sender<String>),
 }
 
@@ -44,7 +43,6 @@ pub struct SongRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Queue {
-    pub current_song: Option<SongRequest>,
     pub queue: [Option<SongRequest>; 20],
     pub rear: usize,
 }
@@ -63,24 +61,15 @@ impl Queue {
     }
 
     pub fn dequeue(&mut self) {
-        self.current_song = self.queue[0].clone();
-
-        for i in 0..self.rear - 1 {
-            self.queue[i] = self.queue[i + 1].clone();
-            self.queue[i + 1] = None;
+        for i in 0..self.rear {
+            self.queue[i] = self.queue[i + 1].take();
         }
 
-        if self.rear == 1 {
-            self.queue[0] = None;
-        }
-
-        self.rear -= 1;
+        self.rear = self.rear.saturating_sub(1);
     }
 
-    pub fn clear_current_song(&mut self) {
-        if self.rear == 0 {
-            self.current_song = None;
-        }
+    pub fn current_song(&self) -> Option<SongRequest> {
+        self.queue[0].clone()
     }
 
     pub async fn sr(
@@ -107,8 +96,8 @@ impl Queue {
 
             return Ok(format!("Added: {}", song.title));
         }
-        // request is a valid yt URL
 
+        // request is a URL
         let video_id = youtube::video_id_from_url(song)?;
 
         let video_title = youtube::video_title(song, api_info).await?;
@@ -148,7 +137,6 @@ impl SrQueue {
             song_sender,
             receiver,
             queue: Queue {
-                current_song: None,
                 queue: Default::default(),
                 rear: 0,
             },
@@ -161,10 +149,6 @@ impl SrQueue {
 
     pub fn dequeue(&mut self) {
         self.queue.dequeue();
-    }
-
-    pub fn clear_current_song(&mut self) {
-        self.queue.clear_current_song();
     }
 
     pub async fn sr(
@@ -187,7 +171,6 @@ impl SrQueue {
                 }
                 QueueMessages::Enqueue(song) => self.enqueue(&song)?,
                 QueueMessages::Dequeue => self.dequeue(),
-                QueueMessages::ClearCurrentSong => self.clear_current_song(),
                 QueueMessages::Sr((sender, song), one_shot_sender) => {
                     match self
                         .sr(
@@ -218,7 +201,7 @@ impl SrQueue {
                 }
                 QueueMessages::GetCurrentSong(one_shot_sender) => {
                     one_shot_sender
-                        .send(self.queue.current_song.clone())
+                        .send(self.queue.current_song())
                         .expect("send current song");
                 }
             }
@@ -266,20 +249,18 @@ pub fn play_song(
                 change: PropertyData::Flag(true),
                 ..
             }) => {
-                queue_sender.send(QueueMessages::ClearCurrentSong)?;
+                queue_sender.send(QueueMessages::Dequeue)?;
 
                 if let Some(song) = song_receiver.blocking_recv() {
                     tracing::info!("song: {song:#?}");
 
                     mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
                         .expect("play song");
-
-                    queue_sender.send(QueueMessages::Dequeue)?;
                 }
             }
             Err(libmpv::Error::Raw(e)) => {
                 tracing::error!("Mpv Error:: {e}");
-                queue_sender.send(QueueMessages::ClearCurrentSong)?;
+                queue_sender.send(QueueMessages::Dequeue)?;
                 // event_sender.send(crate::event_handler::Event::MpvEvent(
                 //     crate::event_handler::MpvEvent::Error(e),
                 // ))?;
