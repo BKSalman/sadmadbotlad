@@ -2,16 +2,17 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 
-use crate::db::{DatabaseError, Store};
-use crate::discord::{offline_notification, online_notification, DiscordError};
+use crate::db::{DBMessage, DatabaseError};
+use crate::discord::{DiscordError, offline_notification, online_notification};
 use crate::twitch::{TwitchApiResponse, TwitchError, TwitchTokenMessages};
 use crate::{Alert, AlertEventType, ApiInfo};
 use chrono::ParseError;
 use futures_util::{SinkExt, StreamExt};
-use reqwest::{StatusCode, Url};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -112,9 +113,9 @@ pub async fn eventsub(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
-    store: Arc<Store>,
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
 ) -> Result<(), EventsubError> {
-    read(alerts_sender, token_sender, api_info, store).await?;
+    read(alerts_sender, token_sender, api_info, db_tx).await?;
 
     Ok(())
 }
@@ -123,7 +124,7 @@ async fn read(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
-    store: Arc<Store>,
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
 ) -> Result<(), EventsubError> {
     let (irc_sender, mut irc_receiver) = mpsc::unbounded_channel::<Message>();
 
@@ -146,6 +147,7 @@ async fn read(
         }
 
         while let Some(msg) = irc_receiver.recv().await {
+            let db_tx = db_tx.clone();
             match msg {
                 Message::Close(reason) => match reason.as_ref() {
                     Some(close_frame) => match close_frame.code {
@@ -196,7 +198,9 @@ async fn read(
                     match eventsub_message.metadata.message_type {
                         EventsubMessageType::SessionWelcome => {
                             if connections_handlers.len() > 1 {
-                                tracing::debug!("Received welcome message on new connection. removing old connections");
+                                tracing::debug!(
+                                    "Received welcome message on new connection. removing old connections"
+                                );
 
                                 // abort all tokio tasks but the last one
                                 // to remove old connections
@@ -290,7 +294,8 @@ async fn read(
 
                                     let alert = AlertEventType::Follow { follower };
 
-                                    let res = store.new_event(alert.clone()).await?;
+                                    let res =
+                                        db_tx.send(DBMessage::NewEvent(alert.clone())).unwrap();
 
                                     tracing::debug!("added {sub_type} event to db {res:#?}");
 
@@ -314,7 +319,8 @@ async fn read(
 
                                     let alert = AlertEventType::Raid { from, viewers };
 
-                                    let res = store.new_event(alert.clone()).await?;
+                                    let res =
+                                        db_tx.send(DBMessage::NewEvent(alert.clone())).unwrap();
 
                                     tracing::debug!("added {sub_type} event to db {res:#?}");
 
@@ -324,12 +330,12 @@ async fn read(
                                     })?;
                                 }
                                 "channel.subscribe" => {
-                                    channel_subscribe_event(event, &store, &alerts_sender).await?;
+                                    channel_subscribe_event(event, db_tx, &alerts_sender).await?;
                                 }
                                 "channel.subscription.message" => {
                                     channel_subscription_message_event(
                                         event,
-                                        &store,
+                                        db_tx.clone(),
                                         &alerts_sender,
                                     )
                                     .await?
@@ -359,7 +365,8 @@ async fn read(
                                         tier,
                                     };
 
-                                    let res = store.new_event(alert.clone()).await?;
+                                    let res =
+                                        db_tx.send(DBMessage::NewEvent(alert.clone())).unwrap();
 
                                     tracing::debug!("added {sub_type} event to db {res:#?}");
 
@@ -369,7 +376,7 @@ async fn read(
                                     })?;
                                 }
                                 "channel.cheer" => {
-                                    channel_cheer_event(event, &store, &alerts_sender).await?
+                                    channel_cheer_event(event, db_tx, &alerts_sender).await?
                                 }
                                 "channel.channel_points_custom_reward_redemption.add" => {
                                     let redeemer =
@@ -429,11 +436,15 @@ fn new_connection(
     tracing::debug!("new connection");
     let connection_url = connection_url.to_string();
     tokio::spawn(async move {
-        let (mut sender, mut receiver) =
-            connect_async(Url::parse(&connection_url).expect("Url parsed"))
-                .await?
-                .0
-                .split();
+        let (mut sender, mut receiver) = connect_async(
+            connection_url
+                .clone()
+                .into_client_request()
+                .expect("Url parsed"),
+        )
+        .await?
+        .0
+        .split();
 
         while let Some(msg) = receiver.next().await {
             match msg {
@@ -454,7 +465,7 @@ fn new_connection(
 
 async fn channel_cheer_event(
     json_lossy: &Value,
-    store: &Arc<Store>,
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
     alerts_sender: &tokio::sync::broadcast::Sender<Alert>,
 ) -> Result<(), EventsubError> {
     let message = (*json_lossy)["payload"]["event"]["message"]
@@ -482,7 +493,7 @@ async fn channel_cheer_event(
         bits,
     };
 
-    let res = store.new_event(alert.clone()).await?;
+    let res = db_tx.send(DBMessage::NewEvent(alert.clone())).unwrap();
 
     tracing::debug!("added {alert:#?} event to db {res:#?}");
 
@@ -496,7 +507,7 @@ async fn channel_cheer_event(
 
 async fn channel_subscription_message_event(
     event: &Value,
-    store: &Arc<Store>,
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
     alerts_sender: &tokio::sync::broadcast::Sender<Alert>,
 ) -> Result<(), EventsubError> {
     let subscriber = event["user_name"].as_str().expect("user_name").to_string();
@@ -530,7 +541,7 @@ async fn channel_subscription_message_event(
         AlertEventType::Subscribe { subscriber, tier }
     };
 
-    let res = store.new_event(alert.clone()).await?;
+    let res = db_tx.send(DBMessage::NewEvent(alert.clone())).unwrap();
 
     tracing::debug!("added {:#?} event to db {res:#?}", alert);
 
@@ -590,7 +601,7 @@ async fn stream_online_event(
 
 async fn channel_subscribe_event(
     event: &Value,
-    store: &Arc<Store>,
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
     alerts_sender: &tokio::sync::broadcast::Sender<Alert>,
 ) -> Result<(), EventsubError> {
     let subscriber = event["user_name"].as_str().expect("user_name").to_string();
@@ -615,7 +626,7 @@ async fn channel_subscribe_event(
             tier,
         };
 
-        let res = store.new_event(alert.clone()).await?;
+        let res = db_tx.send(DBMessage::NewEvent(alert.clone())).unwrap();
 
         tracing::debug!("added {:#?} event to db {res:#?}", alert);
 

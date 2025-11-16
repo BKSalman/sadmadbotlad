@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::ApiInfo;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use serde_json::Value;
 
 const FRAGMENT: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'<').add(b'>').add(b'`');
@@ -11,7 +11,7 @@ pub struct VideoInfo {
     pub title: String,
 }
 
-pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
+pub fn video_id_from_url(url: &str) -> anyhow::Result<&str> {
     if url.contains("?v=") && url.contains('&') {
         return Ok(&url[url.find("?v=").unwrap() + 3..url.find('&').unwrap()]);
     } else if url.contains("?v=") {
@@ -20,10 +20,10 @@ pub fn video_id_from_url(url: &str) -> Result<&str, eyre::Report> {
         return Ok(url.rsplit_once('/').expect("yt watch format link").1);
     }
 
-    Err(eyre::eyre!("Not A Valid Youtube URL"))
+    Err(anyhow::anyhow!("Not A Valid Youtube URL"))
 }
 
-pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<String, eyre::Report> {
+pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> anyhow::Result<String> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -36,7 +36,7 @@ pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<Strin
         .await?;
 
     if !res.status().is_success() {
-        return Err(eyre::eyre!(
+        return Err(anyhow::anyhow!(
             "video_title:: {}: {}",
             res.status(),
             res.text().await?
@@ -48,15 +48,12 @@ pub async fn video_title(video_id: &str, api_info: Arc<ApiInfo>) -> Result<Strin
     if let Some(video_title) = res["items"][0]["snippet"]["title"].as_str() {
         Ok(video_title.to_owned())
     } else {
-        Err(eyre::eyre!("Failed to get video title"))
+        Err(anyhow::anyhow!("Failed to get video title"))
     }
 }
 
 // TODO: move this to be a method of YoutubeApiInfo or something
-pub async fn video_info(
-    video_query: &str,
-    api_info: Arc<ApiInfo>,
-) -> Result<VideoInfo, eyre::Report> {
+pub async fn video_info(video_query: &str, api_info: Arc<ApiInfo>) -> anyhow::Result<VideoInfo> {
     let http_client = reqwest::Client::new();
 
     tracing::debug!("youtube video query: {video_query}");
@@ -72,7 +69,7 @@ pub async fn video_info(
         .await?;
 
     if !res.status().is_success() {
-        return Err(eyre::eyre!(
+        return Err(anyhow::anyhow!(
             "{} :: message: {}",
             res.status(),
             res.text().await?

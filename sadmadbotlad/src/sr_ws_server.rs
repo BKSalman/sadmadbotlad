@@ -4,40 +4,36 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::{mpsc, oneshot},
 };
-use tokio_tungstenite::{
-    accept_async,
-    tungstenite::{Message, Result},
-};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
 
-use crate::{song_requests::QueueMessages, APP};
+use crate::{APP, song_requests::QueueMessages};
 
 pub async fn sr_ws_server(
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
-) -> Result<(), eyre::Report> {
+) -> anyhow::Result<()> {
     tracing::info!("Starting Sr WebSocket Server on port {}", APP.config.port);
 
     let ip_address = Ipv4Addr::new(127, 0, 0, 1);
     let address = SocketAddrV4::new(ip_address, APP.config.port);
     let listener = TcpListener::bind(address).await?;
 
-    while let Ok((stream, _)) = listener.accept().await {
-        let peer = stream.peer_addr()?;
+    loop {
+        match listener.accept().await {
+            Ok((stream, _)) => {
+                let peer = stream.peer_addr()?;
 
-        tracing::debug!("Songs Peer address: {}", peer);
+                tracing::debug!("Songs Peer address: {}", peer);
 
-        tokio::spawn(accept_connection(queue_sender.to_owned(), peer, stream));
-    }
+                let queue_sender = queue_sender.clone();
 
-    Ok(())
-}
-
-async fn accept_connection(
-    queue_sender: mpsc::UnboundedSender<QueueMessages>,
-    peer: SocketAddr,
-    stream: TcpStream,
-) {
-    if let Err(e) = handle_connection(queue_sender, peer, stream).await {
-        tracing::error!("Error processing connection: {}", e)
+                tokio::spawn(async move {
+                    if let Err(e) = handle_connection(queue_sender, peer, stream).await {
+                        tracing::error!("Error processing connection: {}", e)
+                    }
+                });
+            }
+            Err(e) => return Err(anyhow::anyhow!("Failed to accept client: {e}")),
+        }
     }
 }
 
@@ -45,7 +41,7 @@ async fn handle_connection(
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     peer: SocketAddr,
     stream: TcpStream,
-) -> eyre::Result<()> {
+) -> anyhow::Result<()> {
     let mut ws_stream = accept_async(stream).await.expect("Failed to accept");
 
     let (send, recv) = oneshot::channel();
@@ -55,7 +51,7 @@ async fn handle_connection(
         .expect("request songs");
 
     let Ok(queue) = recv.await else {
-        return Err(eyre::eyre!("Could not get queue"));
+        return Err(anyhow::anyhow!("Could not get queue"));
     };
 
     tracing::info!("Sending Queue to Peer {peer}");
@@ -64,7 +60,7 @@ async fn handle_connection(
         panic!("Could not parse queue to string");
     };
 
-    if let Err(e) = ws_stream.send(Message::Text(queue)).await {
+    if let Err(e) = ws_stream.send(Message::Text(queue.into())).await {
         tracing::error!("WebSocket server:: {e}");
         return Ok(());
     }

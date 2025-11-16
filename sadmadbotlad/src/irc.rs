@@ -1,14 +1,14 @@
 use std::{collections::HashMap, fmt::Display, panic::AssertUnwindSafe, path::Path, sync::Arc};
 
 use crate::{
-    commands::{run_hebi, Context},
-    db::Store,
-    song_requests::{play_song, setup_mpv, QueueMessages, SongRequest, SongRequestsError},
+    APP, Alert, CommandsError, CommandsLoader,
+    commands::{Context, run_hebi},
+    db::DBMessage,
+    song_requests::{QueueMessages, SongRequest, SongRequestsError, play_song, setup_mpv},
     twitch::{TwitchError, TwitchTokenMessages},
-    Alert, CommandsError, CommandsLoader, MainError, APP,
 };
 use futures::FutureExt;
-use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use libmpv::Mpv;
 use notify::{RecommendedWatcher, Watcher};
 use tokio::{
@@ -19,7 +19,7 @@ use tokio::{
         oneshot,
     },
 };
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 #[derive(thiserror::Error, Debug)]
 pub enum IrcError {
@@ -45,7 +45,7 @@ pub enum IrcError {
     HebiError(#[from] hebi::Error),
 
     #[error(transparent)]
-    MainError(#[from] MainError),
+    Anyhow(#[from] anyhow::Error),
 
     #[error("no badges tag")]
     NoBadgeTag,
@@ -65,7 +65,7 @@ pub async fn irc_connect(
     song_receiver: mpsc::Receiver<SongRequest>,
     queue_sender: mpsc::UnboundedSender<QueueMessages>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
-    store: Arc<Store>,
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
 ) -> Result<(), IrcError> {
     tracing::info!("Starting IRC");
 
@@ -77,7 +77,7 @@ pub async fn irc_connect(
         std::thread::spawn(move || play_song(mpv, song_receiver, queue_sender))
     };
 
-    read(queue_sender, token_sender, mpv, alerts_sender, store).await?;
+    read(queue_sender, token_sender, mpv, alerts_sender, db_tx).await?;
 
     t_handle.join().expect("play_song thread")?;
 
@@ -88,7 +88,7 @@ pub async fn irc_login(
     ws_sender: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     token_sender: UnboundedSender<TwitchTokenMessages>,
 ) -> Result<(), IrcError> {
-    let cap = Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags"));
+    let cap = Message::Text(String::from("CAP REQ :twitch.tv/commands twitch.tv/tags").into());
 
     ws_sender.send(cap).await?;
 
@@ -100,16 +100,16 @@ pub async fn irc_login(
         return Err(IrcError::TwitchError(TwitchError::TokenError));
     };
 
-    let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_access_token));
+    let pass_msg = Message::Text(format!("PASS oauth:{}", api_info.twitch_access_token).into());
 
     ws_sender.send(pass_msg).await?;
 
-    let nick_msg = Message::Text(format!("NICK {}", api_info.user));
+    let nick_msg = Message::Text(format!("NICK {}", api_info.user).into());
 
     ws_sender.send(nick_msg).await?;
 
     ws_sender
-        .send(Message::Text(String::from("JOIN #sadmadladsalman")))
+        .send(Message::Text(String::from("JOIN #sadmadladsalman").into()))
         .await?;
 
     Ok(())
@@ -121,7 +121,7 @@ async fn read(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     mpv: Arc<Mpv>,
     alerts_sender: broadcast::Sender<Alert>,
-    _store: Arc<Store>,
+    _db_tx: std::sync::mpsc::Sender<DBMessage>,
 ) -> Result<(), IrcError> {
     // let voters = Arc::new(RwLock::new(HashSet::new()));
 
@@ -191,7 +191,9 @@ async fn read(
             match msg {
                 Ok(Message::Ping(ping)) => {
                     tracing::debug!("IRC WebSocket Ping {ping:?}");
-                    irc_sender.send(Message::Pong(vec![])).await?;
+                    irc_sender
+                        .send(Message::Pong(tokio_tungstenite::tungstenite::Bytes::new()))
+                        .await?;
                 }
                 Ok(Message::Text(msg)) if msg.contains("PRIVMSG") => {
                     let parsed_msg = parse_irc(&msg);
@@ -256,7 +258,9 @@ async fn read(
                 Ok(Message::Text(msg)) => {
                     if msg.starts_with("PING :tmi.twitch.tv") {
                         irc_sender
-                            .send(Message::Text(String::from("PONG :tmi.twitch.tv\r\n")))
+                            .send(Message::Text(
+                                String::from("PONG :tmi.twitch.tv\r\n").into(),
+                            ))
                             .await?;
                     } else if msg.contains(":tmi.twitch.tv RECONNECT") {
                         tracing::debug!("reconnect");

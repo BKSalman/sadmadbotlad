@@ -10,10 +10,10 @@ use tokio::sync::{
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
-    irc::{to_irc_message, Tags, TwitchIrcMessage},
+    APP, Alert,
+    irc::{Tags, TwitchIrcMessage, to_irc_message},
     song_requests::{QueueMessages, SongRequest},
     twitch::TwitchTokenMessages,
-    Alert, APP,
 };
 
 const RUST_WARRANTY: &str = include_str!("../rust_warranty.txt");
@@ -29,7 +29,7 @@ impl WsSender {
         let message = scope.param::<Str>(0)?;
 
         this.0
-            .send(Message::Text(to_irc_message(message)))
+            .send(Message::Text(to_irc_message(message).into()))
             .await
             .map_err(hebi::Error::user)?;
 

@@ -15,11 +15,9 @@
         pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
 
         libPath = with pkgs; lib.makeLibraryPath [
-            snappy
             openssl
             libiconv
             pkg-config
-            (rocksdb.override { enableLiburing = false; })
             dbus
             mpv
             llvmPackages.libclang
@@ -29,7 +27,6 @@
         craneLib = crane.mkLib pkgs;
 
         nativeBuildInputs = with pkgs; [
-            snappy
             dbus
             alsa-lib
             llvmPackages.libclang
@@ -40,7 +37,6 @@
         ];
 
         buildInputs = with pkgs; [
-            snappy
             dbus
             mpv
         ];
@@ -51,9 +47,6 @@
           inherit buildInputs nativeBuildInputs;
 
           BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-          ROCKSDB_LIB_DIR = "${pkgs.rocksdb.override { enableLiburing = false; }}/lib/";
-          SNAPPY_LIB_DIR = "${pkgs.snappy}/lib/";
-          ROCKSDB_STATIC = "true";
           LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
           LD_LIBRARY_PATH = "${libPath}";
           # NIX_LDFLAGS = "-l${pkgs.llvmPackages.libcxx}";
@@ -113,9 +106,6 @@
           packages = rec {
             sadmadbotlad = craneLib.buildPackage {
               BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-              ROCKSDB_LIB_DIR = "${pkgs.rocksdb.override { enableLiburing = false; }}/lib/";
-              SNAPPY_LIB_DIR = "${pkgs.snappy}/lib/";
-              ROCKSDB_STATIC = "true";
               LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               LD_LIBRARY_PATH = "${libPath}";
 
@@ -150,13 +140,11 @@
               })
 
               trunk
+              yt-dlp
             ];
             
             # NIX_LDFLAGS = "-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";
             BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-            ROCKSDB_LIB_DIR = "${pkgs.rocksdb.override { enableLiburing = false; }}/lib/";
-            SNAPPY_LIB_DIR = "${pkgs.snappy}/lib/";
-            ROCKSDB_STATIC = "true";
             LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
             LD_LIBRARY_PATH = "${libPath}";
           };

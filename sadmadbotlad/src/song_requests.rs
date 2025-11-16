@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use tokio::sync::oneshot;
 
-use crate::{youtube, ApiInfo};
+use crate::{ApiInfo, youtube};
 use html_escape::decode_html_entities;
 
 #[derive(thiserror::Error, Debug)]
@@ -50,9 +50,9 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn enqueue(&mut self, item: &SongRequest) -> eyre::Result<()> {
+    pub fn enqueue(&mut self, item: &SongRequest) -> anyhow::Result<()> {
         if self.rear >= 20 {
-            return Err(eyre::eyre!("queue is full"));
+            return Err(anyhow::anyhow!("queue is full"));
         }
 
         self.queue[self.rear] = Some(item.clone());
@@ -89,7 +89,7 @@ impl Queue {
         song: &str,
         song_sender: Sender<SongRequest>,
         api_info: Arc<ApiInfo>,
-    ) -> Result<String, eyre::Report> {
+    ) -> anyhow::Result<String> {
         // request is a video title
         if !song.starts_with("https://") {
             let video_info = youtube::video_info(song, api_info).await?;
@@ -155,7 +155,7 @@ impl SrQueue {
         }
     }
 
-    pub fn enqueue(&mut self, item: &SongRequest) -> eyre::Result<()> {
+    pub fn enqueue(&mut self, item: &SongRequest) -> anyhow::Result<()> {
         self.queue.enqueue(item)
     }
 
@@ -173,11 +173,11 @@ impl SrQueue {
         song: &str,
         song_sender: Sender<SongRequest>,
         api_info: Arc<ApiInfo>,
-    ) -> Result<String, eyre::Report> {
+    ) -> anyhow::Result<String> {
         self.queue.sr(sender, song, song_sender, api_info).await
     }
 
-    pub async fn handle_messages(mut self) -> eyre::Result<()> {
+    pub async fn handle_messages(mut self) -> anyhow::Result<()> {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 QueueMessages::GetQueue(one_shot_sender) => {

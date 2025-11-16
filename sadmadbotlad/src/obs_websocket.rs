@@ -1,20 +1,20 @@
 use std::{sync::Arc, time::Duration};
 
-use futures_util::{pin_mut, StreamExt};
-use obws::{events::Event, Client};
+use futures_util::{StreamExt, pin_mut};
+use obws::{Client, events::Event};
 use tokio::sync::mpsc;
 
 use crate::{
-    // event_handler::{Event as EventHandler, IrcChat, IrcEvent},
-    twitch::{run_ads, TwitchTokenMessages},
     ApiInfo,
+    // event_handler::{Event as EventHandler, IrcChat, IrcEvent},
+    twitch::{TwitchTokenMessages, run_ads},
 };
 
 pub async fn obs_websocket(
     // e_sender: UnboundedSender<EventHandler>,
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
     api_info: Arc<ApiInfo>,
-) -> eyre::Result<()> {
+) -> anyhow::Result<()> {
     let Ok(client) = Client::connect("localhost", 4455, Some(&api_info.obs_server_password)).await
     else {
         tracing::error!("Could not connect to obs websocket");
@@ -64,7 +64,7 @@ pub async fn obs_websocket(
     Ok(())
 }
 
-async fn refresh_alert_box(client: &Client) -> eyre::Result<()> {
+async fn refresh_alert_box(client: &Client) -> anyhow::Result<()> {
     let current_scene = client.scenes().current_program_scene().await?;
 
     let id = client

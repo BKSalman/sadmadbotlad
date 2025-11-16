@@ -2,14 +2,14 @@ use chrono::{Duration, Utc};
 use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::{
     net::TcpListener,
     sync::{mpsc, oneshot},
 };
 use tokio_tungstenite::{accept_async, tungstenite};
 
-use crate::{ApiInfo, APP};
+use crate::{APP, ApiInfo};
 
 // TODO: move AUTH_LINK to config file instead
 const AUTH_LINK: &'static str = include_str!("../auth_link.txt");
@@ -162,7 +162,7 @@ pub async fn get_title(
 pub async fn get_access_token_from_code(
     code: &str,
     api_info: &mut TwitchApiInfo,
-) -> Result<(), eyre::Report> {
+) -> anyhow::Result<()> {
     let http_client = Client::new();
 
     let res = http_client
@@ -178,7 +178,7 @@ pub async fn get_access_token_from_code(
         .await?;
 
     if !res.status().is_success() {
-        return Err(eyre::eyre!(
+        return Err(anyhow::anyhow!(
             "get access token:: {}::{}",
             res.status(),
             res.text().await?
@@ -201,7 +201,7 @@ pub async fn get_access_token_from_code(
 pub async fn get_user_id(
     login_name: impl Into<String>,
     api_info: &TwitchApiInfo,
-) -> Result<String, eyre::Report> {
+) -> anyhow::Result<String> {
     let http_client = reqwest::Client::new();
 
     let res = http_client
@@ -222,7 +222,7 @@ pub async fn get_user_id(
 pub async fn is_vip(
     login_name: impl Into<String>,
     api_info: &TwitchApiInfo,
-) -> Result<bool, eyre::Report> {
+) -> anyhow::Result<bool> {
     let http_client = reqwest::Client::new();
     let user_id = get_user_id(login_name, api_info).await?;
 
@@ -246,7 +246,7 @@ pub async fn is_vip(
 
 pub async fn run_ads(
     token_sender: mpsc::UnboundedSender<TwitchTokenMessages>,
-) -> eyre::Result<i64> {
+) -> anyhow::Result<i64> {
     let http_client = Client::new();
 
     let (one_shot_sender, one_shot_receiver) = oneshot::channel();
@@ -254,7 +254,7 @@ pub async fn run_ads(
     token_sender.send(TwitchTokenMessages::GetToken(one_shot_sender))?;
 
     let Ok(api_info) = one_shot_receiver.await else {
-        return Err(eyre::eyre!("Failed to get token"));
+        return Err(anyhow::anyhow!("Failed to get token"));
     };
 
     let res = http_client
@@ -269,7 +269,7 @@ pub async fn run_ads(
         .await?;
 
     if !res.status().is_success() {
-        return Err(eyre::eyre!(
+        return Err(anyhow::anyhow!(
             "{} :: message: {}",
             res.status(),
             res.text().await?
@@ -283,7 +283,7 @@ pub async fn run_ads(
     Ok(res.data[0].retry_after)
 }
 
-pub async fn access_token(api_info: &mut TwitchApiInfo) -> eyre::Result<()> {
+pub async fn access_token(api_info: &mut TwitchApiInfo) -> anyhow::Result<()> {
     open::that(AUTH_LINK)?;
 
     let port = 4040;
@@ -293,7 +293,7 @@ pub async fn access_token(api_info: &mut TwitchApiInfo) -> eyre::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
 
     let Ok((stream, _)) = listener.accept().await else {
-        return Err(eyre::eyre!("Code Websocket failed"));
+        return Err(anyhow::anyhow!("Code Websocket failed"));
     };
 
     let peer = stream
@@ -308,6 +308,7 @@ pub async fn access_token(api_info: &mut TwitchApiInfo) -> eyre::Result<()> {
         match msg {
             Ok(tungstenite::Message::Text(code)) => {
                 get_access_token_from_code(&code, api_info).await?;
+                tracing::info!("received twitch auth token");
             }
             _ => tracing::error!("could not get code from frontend"),
         }

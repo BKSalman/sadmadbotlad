@@ -1,22 +1,17 @@
-use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt, stream::SplitSink};
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    sync::Arc,
     time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::{
-    accept_async,
-    tungstenite::{Message, Result},
-    WebSocketStream,
-};
+use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
 
-use crate::{db::Store, Alert, APP};
+use crate::{APP, Alert, db::DBMessage};
 
 pub async fn ws_server(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
-    store: Arc<Store>,
-) -> Result<(), eyre::Report> {
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
+) -> anyhow::Result<()> {
     let port = APP.config.port + 1000;
     tracing::info!("Starting WebSocket Server on port {port}");
 
@@ -30,12 +25,12 @@ pub async fn ws_server(
             .expect("connected streams should have a peer address");
 
         tracing::debug!("Peer address: {}", peer);
-        let store = store.clone();
+        let db_tx = db_tx.clone();
         let alerts_sender = alerts_sender.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(alerts_sender, peer, stream, store).await {
-                tracing::error!("Error processing connection: {}", e)
+            if let Err(e) = handle_connection(alerts_sender, peer, stream, db_tx).await {
+                tracing::error!("Error processing connection: {:?}", e);
             }
         });
     }
@@ -47,36 +42,19 @@ async fn handle_connection(
     alerts_sender: tokio::sync::broadcast::Sender<Alert>,
     peer: SocketAddr,
     stream: TcpStream,
-    store: Arc<Store>,
-) -> eyre::Result<()> {
+    db_tx: std::sync::mpsc::Sender<DBMessage>,
+) -> anyhow::Result<()> {
     let alerts_receiver = alerts_sender.subscribe();
 
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
 
     let (ws_sender, mut ws_receiver) = ws_stream.split();
 
-    let (ws_sender_tx, ws_sender_rx) = tokio::sync::mpsc::channel(1);
+    let (ws_sender_tx, ws_sender_rx) = tokio::sync::mpsc::channel(5);
 
-    let forever = {
-        let tx = ws_sender_tx.clone();
-        tokio::task::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-            loop {
-                interval.tick().await;
-                if let Err(e) = tx.send(Message::Ping(vec![])).await {
-                    tracing::error!("{e}");
-                }
-            }
-        })
-    };
-
-    let t_handle = tokio::spawn(handle_front_end_events(
-        alerts_receiver,
-        ws_sender,
-        ws_sender_rx,
-        peer,
-    ));
+    let t_handle = tokio::spawn(async move {
+        handle_websocket_send(alerts_receiver, ws_sender, ws_sender_rx, peer).await;
+    });
 
     while let Some(msg) = ws_receiver.next().await {
         match msg {
@@ -88,21 +66,27 @@ async fn handle_connection(
             Ok(Message::Text(msg)) => {
                 if msg.starts_with("db") {
                     tracing::debug!("db was requested ");
-                    let events: Vec<_> = store
-                        .get_events()
-                        .await?
-                        .into_iter()
-                        .map(|e| Alert {
-                            new: false,
-                            r#type: e.alert_type,
-                        })
-                        .rev()
-                        .collect();
+                    let (tx, rx) = crate::oneshot();
+                    db_tx.send(DBMessage::GetEvents(tx)).unwrap();
+                    let Ok(events) = rx.recv() else {
+                        continue;
+                    };
 
-                    let events = serde_json::to_string(&events)?;
+                    let events = serde_json::to_string(
+                        &events
+                            .into_iter()
+                            .rev()
+                            .map(|a| Alert {
+                                new: false,
+                                r#type: a.alert_type,
+                            })
+                            .collect::<Vec<_>>(),
+                    )?;
+
+                    tracing::debug!("events: {events}");
 
                     ws_sender_tx
-                        .send(Message::Text(format!("db::{}", events)))
+                        .send(Message::Text(format!("db::{}", events).into()))
                         .await?;
 
                     continue;
@@ -127,31 +111,39 @@ async fn handle_connection(
     }
 
     t_handle.abort();
-    forever.abort();
     tracing::debug!("aborted websocket thread");
 
     Ok(())
 }
 
-async fn handle_front_end_events(
+async fn handle_websocket_send(
     mut front_end_event_receiver: tokio::sync::broadcast::Receiver<Alert>,
     mut ws_sender: SplitSink<WebSocketStream<TcpStream>, Message>,
     mut ws_sender_rx: tokio::sync::mpsc::Receiver<Message>,
     _peer: SocketAddr,
 ) {
-    tokio::select! {
-        Ok(msg) = front_end_event_receiver.recv() => {
-            tracing::debug!("Sending Ws:: {msg:?}");
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
 
-            let alert = serde_json::to_string(&msg).expect("alert");
+    loop {
+        tokio::select! {
+            Ok(msg) = front_end_event_receiver.recv() => {
+                tracing::debug!("Sending Ws:: {msg:?}");
 
-            if let Err(e) = ws_sender.send(Message::Text(alert)).await {
-                tracing::error!("{e}");
+                let alert = serde_json::to_string(&msg).expect("alert");
+
+                if let Err(e) = ws_sender.send(Message::Text(alert.into())).await {
+                    tracing::error!("websocket sender: {e}");
+                }
             }
-        }
-        Some(send) = ws_sender_rx.recv() => {
-            if let Err(e) = ws_sender.send(send).await {
-                tracing::error!("{e}");
+            Some(send) = ws_sender_rx.recv() => {
+                if let Err(e) = ws_sender.send(send).await {
+                    tracing::error!("websocket sender: {e}");
+                }
+            }
+            _ = interval.tick() => {
+                if let Err(e) = ws_sender.send(Message::Ping(tokio_tungstenite::tungstenite::Bytes::new())).await {
+                    tracing::error!("websocket sender: {e}");
+                }
             }
         }
     }

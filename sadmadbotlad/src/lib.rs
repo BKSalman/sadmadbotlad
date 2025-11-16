@@ -1,7 +1,8 @@
+use clap::Parser;
 use hebi::prelude::*;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, error::Error, fs, io::Read, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, io::Read, path::PathBuf, sync::Arc};
 use tokio::task::JoinHandle;
 use tracing::{Level, metadata::LevelFilter};
 use tracing_appender::rolling;
@@ -25,19 +26,60 @@ pub mod twitch;
 pub mod ws_server;
 pub mod youtube;
 
-pub type MainError = Box<dyn Error + Send + Sync>;
-
-pub async fn flatten<T>(handle: JoinHandle<Result<T, MainError>>) -> Result<T, MainError> {
+pub async fn flatten<T>(handle: JoinHandle<anyhow::Result<T>>) -> anyhow::Result<T> {
     match handle.await {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err),
-        Err(e) => Err(Box::new(e)),
+        Err(e) => Err(e.into()),
     }
+}
+
+pub fn oneshot<T>() -> (OneShotSender<T>, OneShotReceiver<T>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    (OneShotSender(tx), OneShotReceiver(rx))
+}
+
+pub struct OneShotSender<T>(std::sync::mpsc::Sender<T>);
+
+impl<T> OneShotSender<T> {
+    pub fn send(self, t: T) -> Result<(), std::sync::mpsc::SendError<T>> {
+        self.0.send(t)
+    }
+}
+
+pub struct OneShotReceiver<T>(std::sync::mpsc::Receiver<T>);
+
+impl<T> OneShotReceiver<T> {
+    pub fn recv(self) -> Result<T, std::sync::mpsc::RecvError> {
+        self.0.recv()
+    }
+}
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+pub struct Cli {
+    #[arg(long)]
+    pub db: Option<PathBuf>,
+    #[arg(short = 'c', long)]
+    pub config_path: Option<PathBuf>,
+    #[arg(short = 'o', long)]
+    pub commands_path: Option<PathBuf>,
+    #[arg(short, long)]
+    pub manual: bool,
+    #[arg(short = 'd', long)]
+    pub cmd_delim: Option<char>,
+    #[arg(short, long)]
+    pub port: Option<u16>,
+    #[arg(short, long)]
+    pub frontend_port: Option<u16>,
+    #[arg(short, long)]
+    pub static_path: Option<PathBuf>,
 }
 
 #[derive(Debug)]
 pub struct Config {
-    pub database_path: String,
+    pub database_path: PathBuf,
     pub config_path: PathBuf,
     pub commands_path: PathBuf,
     pub manual: bool,
@@ -54,21 +96,11 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
-        let flags = xflags::parse_or_exit! {
-            optional -cd,--cmd-delim cmd_delim: char
-            optional -p,--port port: u16
-            optional -fp,--frontend-port frontend_port: u16
-            /// Frontend static files path to serve
-            optional -s, --static-path static_path: PathBuf
-            optional -m,--manual
-            optional -c, --config-path config_path: PathBuf
-            optional -co, --commands-path commands_path: PathBuf
-            optional -db, --database-path database_path: String
-        };
+        let flags = Cli::parse();
 
         Self {
             config: Config {
-                database_path: flags.database_path.unwrap_or("database.db".into()),
+                database_path: flags.db.unwrap_or("database.db".into()),
                 config_path: flags.config_path.unwrap_or("./config.toml".into()),
                 commands_path: flags.commands_path.unwrap_or("./commands".into()),
                 manual: flags.manual,
@@ -89,17 +121,6 @@ impl Default for App {
 
 lazy_static! {
     pub static ref APP: App = App::new();
-}
-
-pub fn install_eyre() -> eyre::Result<()> {
-    let (_, eyre_hook) = color_eyre::config::HookBuilder::default().into_hooks();
-
-    eyre_hook.install()?;
-
-    std::panic::set_hook(Box::new(move |pi| {
-        tracing::error!("{pi}");
-    }));
-    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -219,7 +240,7 @@ pub struct ApiInfo {
 }
 
 impl ApiInfo {
-    pub fn new() -> eyre::Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let Ok(mut config) = fs::File::open(&APP.config.config_path) else {
             panic!("no config file");
         };
