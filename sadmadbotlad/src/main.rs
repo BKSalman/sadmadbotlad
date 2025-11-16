@@ -16,7 +16,7 @@ use sadmadbotlad::irc::irc_connect;
 use sadmadbotlad::obs_websocket::obs_websocket;
 use sadmadbotlad::song_requests::{QueueMessages, SongRequest, SrQueue, play_song, setup_mpv};
 use sadmadbotlad::sr_ws_server::sr_ws_server;
-use sadmadbotlad::twitch::{TwitchToken, TwitchTokenMessages, access_token};
+use sadmadbotlad::twitch::{TwitchToken, TwitchTokenMessages};
 use sadmadbotlad::ws_server::ws_server;
 use sadmadbotlad::{APP, Alert, ApiInfo, flatten, logging};
 
@@ -28,19 +28,12 @@ async fn main() -> anyhow::Result<()> {
         .install_default()
         .unwrap();
 
-    let mut api_info = ApiInfo::new().expect("Api info failed");
+    let api_info = ApiInfo::new().expect("Api info failed");
 
-    let front_end = tokio::spawn(async move {
-        run_frontend(APP.config.frontend_port, &APP.config.static_path).await
-    });
-
-    if APP.config.manual {
-        access_token(&mut api_info.twitch).await?;
-
-        std::fs::write(&APP.config.config_path, toml::to_string(&api_info).unwrap())?;
-    }
-
-    if let Err(e) = tokio::try_join!(flatten(front_end), run(api_info),) {
+    if let Err(e) = tokio::try_join!(
+        run_frontend(APP.config.frontend_port, &APP.config.static_path),
+        run(api_info),
+    ) {
         tracing::error!("Sadmadladbot failed: {e:?}");
     }
 

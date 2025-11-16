@@ -65,8 +65,6 @@ pub struct Cli {
     pub config_path: Option<PathBuf>,
     #[arg(short = 'o', long)]
     pub commands_path: Option<PathBuf>,
-    #[arg(short, long)]
-    pub manual: bool,
     #[arg(short = 'd', long)]
     pub cmd_delim: Option<char>,
     #[arg(short, long)]
@@ -82,7 +80,6 @@ pub struct Config {
     pub database_path: PathBuf,
     pub config_path: PathBuf,
     pub commands_path: PathBuf,
-    pub manual: bool,
     pub cmd_delim: char,
     pub port: u16,
     pub frontend_port: u16,
@@ -103,7 +100,6 @@ impl App {
                 database_path: flags.db.unwrap_or("database.db".into()),
                 config_path: flags.config_path.unwrap_or("./config.toml".into()),
                 commands_path: flags.commands_path.unwrap_or("./commands".into()),
-                manual: flags.manual,
                 cmd_delim: flags.cmd_delim.unwrap_or('!'),
                 port: flags.port.unwrap_or(3000),
                 frontend_port: flags.frontend_port.unwrap_or(8080),
