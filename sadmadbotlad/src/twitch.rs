@@ -358,7 +358,9 @@ impl TwitchToken {
         while let Some(message) = self.receiver.recv().await {
             match message {
                 TwitchTokenMessages::GetToken(response) => {
-                    self.update_token().await?;
+                    if let Err(e) = self.update_token().await {
+                        tracing::error!("Failed to update twitch token: {e:#?}");
+                    }
 
                     response
                         .send(self.api_info.clone())

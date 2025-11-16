@@ -30,16 +30,17 @@ async fn main() -> anyhow::Result<()> {
 
     let mut api_info = ApiInfo::new().expect("Api info failed");
 
+    let front_end = tokio::spawn(async move {
+        run_frontend(APP.config.frontend_port, &APP.config.static_path).await
+    });
+
     if APP.config.manual {
         access_token(&mut api_info.twitch).await?;
 
         std::fs::write(&APP.config.config_path, toml::to_string(&api_info).unwrap())?;
     }
 
-    if let Err(e) = tokio::try_join!(
-        run(api_info),
-        run_frontend(APP.config.frontend_port, &APP.config.static_path)
-    ) {
+    if let Err(e) = tokio::try_join!(flatten(front_end), run(api_info),) {
         tracing::error!("Sadmadladbot failed: {e:?}");
     }
 
@@ -49,9 +50,10 @@ async fn main() -> anyhow::Result<()> {
 async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
     let api_info = Arc::new(api_info);
 
-    let (token_sender, token_receiver) = mpsc::unbounded_channel::<TwitchTokenMessages>();
+    let (token_request_sender, token_request_receiver) =
+        mpsc::unbounded_channel::<TwitchTokenMessages>();
 
-    let twitch = TwitchToken::new(api_info.twitch.clone(), token_receiver);
+    let twitch = TwitchToken::new(api_info.twitch.clone(), token_request_receiver);
 
     let (queue_sender, queue_receiver) = mpsc::unbounded_channel::<QueueMessages>();
 
@@ -93,7 +95,7 @@ async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
     tokio::try_join!(
         flatten(tokio::spawn({
             let alerts_sender = alerts_sender.clone();
-            let token_sender = token_sender.clone();
+            let token_sender = token_request_sender.clone();
             let db_tx = db_tx.clone();
             let api_info = api_info.clone();
             async move {
@@ -123,7 +125,7 @@ async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
         })),
         flatten(tokio::spawn({
             let alerts_sender = alerts_sender.clone();
-            let token_sender = token_sender.clone();
+            let token_sender = token_request_sender.clone();
             let db_tx = db_tx.clone();
             async move {
                 irc_connect(
@@ -145,7 +147,7 @@ async fn run(api_info: ApiInfo) -> anyhow::Result<()> {
         flatten(tokio::spawn(async move {
             obs_websocket(
                 // e_sender,
-                token_sender,
+                token_request_sender,
                 api_info,
             )
             .await
