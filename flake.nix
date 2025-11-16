@@ -20,8 +20,6 @@
             pkg-config
             dbus
             mpv
-            llvmPackages.libclang
-            llvmPackages.libcxxClang
         ];
 
         craneLib = crane.mkLib pkgs;
@@ -29,9 +27,6 @@
         nativeBuildInputs = with pkgs; [
             dbus
             alsa-lib
-            llvmPackages.libclang
-            llvmPackages.libcxxClang
-            clang
             makeWrapper
             playerctl
         ];
@@ -46,8 +41,6 @@
           src = craneLib.cleanCargoSource ./sadmadbotlad;
           inherit buildInputs nativeBuildInputs;
 
-          BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-          LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
           LD_LIBRARY_PATH = "${libPath}";
           # NIX_LDFLAGS = "-l${pkgs.llvmPackages.libcxx}";
         });
@@ -105,8 +98,6 @@
         {
           packages = rec {
             sadmadbotlad = craneLib.buildPackage {
-              BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-              LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               LD_LIBRARY_PATH = "${libPath}";
 
               src = craneLib.path ./sadmadbotlad;
@@ -144,8 +135,6 @@
             ];
             
             # NIX_LDFLAGS = "-l${pkgs.stdenv.cc.libcxx.cxxabi.libName}";
-            BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${builtins.elemAt (pkgs.lib.splitString "." (pkgs.lib.getVersion pkgs.clang)) 0}/include";
-            LIBCLANG_PATH = "${pkgs.clang.cc.lib}/lib";
             LD_LIBRARY_PATH = "${libPath}";
           };
       });
