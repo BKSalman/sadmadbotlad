@@ -176,6 +176,8 @@ async fn run_frontend(port: u16, static_path: impl AsRef<Path>) -> anyhow::Resul
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port);
 
+    tracing::info!("running frontend on port {port}");
+
     let listener = TcpListener::bind(addr).await?;
 
     axum::serve(listener, router).await?;
