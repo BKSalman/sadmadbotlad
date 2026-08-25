@@ -52,10 +52,6 @@ async fn handle_connection(
 
     let (ws_sender_tx, ws_sender_rx) = tokio::sync::mpsc::channel(5);
 
-    let t_handle = tokio::spawn(async move {
-        handle_websocket_send(alerts_receiver, ws_sender, ws_sender_rx, peer).await;
-    });
-
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(Message::Close(msg)) => {
@@ -110,41 +106,7 @@ async fn handle_connection(
         }
     }
 
-    t_handle.abort();
     tracing::debug!("aborted websocket thread");
 
     Ok(())
-}
-
-async fn handle_websocket_send(
-    mut front_end_event_receiver: tokio::sync::broadcast::Receiver<Alert>,
-    mut ws_sender: SplitSink<WebSocketStream<TcpStream>, Message>,
-    mut ws_sender_rx: tokio::sync::mpsc::Receiver<Message>,
-    _peer: SocketAddr,
-) {
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-    loop {
-        tokio::select! {
-            Ok(msg) = front_end_event_receiver.recv() => {
-                tracing::debug!("Sending Ws:: {msg:?}");
-
-                let alert = serde_json::to_string(&msg).expect("alert");
-
-                if let Err(e) = ws_sender.send(Message::Text(alert.into())).await {
-                    tracing::error!("websocket sender: {e}");
-                }
-            }
-            Some(send) = ws_sender_rx.recv() => {
-                if let Err(e) = ws_sender.send(send).await {
-                    tracing::error!("websocket sender: {e}");
-                }
-            }
-            _ = interval.tick() => {
-                if let Err(e) = ws_sender.send(Message::Ping(tokio_tungstenite::tungstenite::Bytes::new())).await {
-                    tracing::error!("websocket sender: {e}");
-                }
-            }
-        }
-    }
 }

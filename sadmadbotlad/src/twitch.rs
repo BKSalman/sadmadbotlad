@@ -1,13 +1,8 @@
 use chrono::{Duration, Utc};
-use futures_util::StreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{
-    net::TcpListener,
-    sync::{mpsc, oneshot},
-};
-use tokio_tungstenite::{accept_async, tungstenite};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{APP, ApiInfo};
 
@@ -283,35 +278,15 @@ pub async fn run_ads(
     Ok(res.data[0].retry_after)
 }
 
-pub async fn access_token(api_info: &mut TwitchApiInfo) -> anyhow::Result<()> {
+pub async fn access_token(
+    api_info: &mut TwitchApiInfo,
+    code_receiver: &mut tokio::sync::mpsc::Receiver<String>,
+) -> anyhow::Result<()> {
     open::that(AUTH_LINK)?;
 
-    let port = 4040;
-
-    tracing::info!("Auth service running on port {port}");
-
-    let listener = TcpListener::bind(("127.0.0.1", port)).await?;
-
-    let Ok((stream, _)) = listener.accept().await else {
-        return Err(anyhow::anyhow!("Code Websocket failed"));
-    };
-
-    let peer = stream
-        .peer_addr()
-        .expect("connected streams should have a peer address");
-
-    tracing::debug!("Peer address: {}", peer);
-
-    let mut ws = accept_async(stream).await?;
-
-    if let Some(msg) = ws.next().await {
-        match msg {
-            Ok(tungstenite::Message::Text(code)) => {
-                get_access_token_from_code(&code, api_info).await?;
-                tracing::info!("received twitch auth token");
-            }
-            _ => tracing::error!("could not get code from frontend"),
-        }
+    if let Some(code) = code_receiver.recv().await {
+        get_access_token_from_code(&code, api_info).await?;
+        tracing::info!("received twitch auth token");
     }
 
     Ok(())
@@ -334,6 +309,7 @@ pub struct TwitchToken {
     receiver: mpsc::UnboundedReceiver<TwitchTokenMessages>,
     client: reqwest::Client,
     api_info: TwitchApiInfo,
+    code_receiver: mpsc::Receiver<String>,
 }
 
 #[derive(Debug)]
@@ -345,12 +321,14 @@ impl TwitchToken {
     pub fn new(
         api_info: TwitchApiInfo,
         receiver: mpsc::UnboundedReceiver<TwitchTokenMessages>,
+        code_receiver: tokio::sync::mpsc::Receiver<String>,
     ) -> Self {
         let client = reqwest::Client::new();
         Self {
             client,
             api_info,
             receiver,
+            code_receiver,
         }
     }
 
@@ -398,9 +376,21 @@ impl TwitchToken {
                         status: _,
                         message: _,
                     } => {
-                        access_token(&mut self.api_info)
+                        access_token(&mut self.api_info, &mut self.code_receiver)
                             .await
                             .map_err(|_e| TwitchError::TokenError)?;
+
+                        let config_str = std::fs::read_to_string(&APP.config.config_path)?;
+
+                        let mut configs = toml::from_str::<ApiInfo>(&config_str)?;
+
+                        configs.twitch = self.api_info.clone();
+
+                        std::fs::write(
+                            &APP.config.config_path,
+                            toml::to_string(&configs).expect("parse api info struct to string"),
+                        )
+                        .ok();
                     }
                     e => {
                         return Err(e);

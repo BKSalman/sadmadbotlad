@@ -6,39 +6,37 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13.4", features = ["json", "form"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3.25"
-envy = "0.4.2"
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"]}
 serde_json = "1.0.87"
 chrono = { version = "0.4.42", features = ["serde"] }
-# libmpv = 2.0.1
-# fork from `libmpv` that supports mpv v0.35.0
-libmpv-sirno = "2.0.2-fork.1"
-libmpv-sys = "3.0.1"
+libmpv2 = "6.0.0"
 percent-encoding = "2.2.0"
-tokio-retry = "0.3.0"
 html-escape = "0.2.12"
 toml = "0.5.10"
-obws = { version = "0.14.0", features = ["events"] }
+obws = { version = "0.15.0", features = ["events"] }
 open = "5"
 lazy_static = "1.4.0"
-async-trait = "0.1.62"
 urlencoding = "2.1.2"
-rand = "0.8.5"
+rand = "0.10.2"
 hebi = { git = "https://github.com/jprochazk/hebi", branch = "v2"}
 thiserror = "1.0.40"
-notify = "6.0.0"
-futures = "0.3.28"
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-tracing-appender = "0.2.2"
-dirs = "5.0.1"
-axum = "0.8.7"
+notify = "8.2.0"
+futures = "0.3.34"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-appender = "0.2.5"
+dirs = "6.0.0"
+axum = "0.8.9"
 tower-http = { version = "0.6.6", features = ["trace", "fs"] }
 rusqlite = { version = "0.37.0", features = ["bundled", "chrono"] }
-clap = { version = "4.5.51", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 anyhow = "1"
-rustls = "0.23.35"
+rustls = "0.23.43"
+topcoat = { version = "0.6.2", features = ["tower", "websocket", "tailwind"] }
+
+[build-dependencies]
+topcoat = { version = "0.6.2", default-features = false, features = ["tailwind"] }

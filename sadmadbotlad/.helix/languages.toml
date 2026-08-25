@@ -1,0 +1,3 @@
+[[language]]
+name = "rust"
+formatter = { command = "bash", args = ["-c", "set -eo pipefail; rustfmt --edition 2024 | topcoat fmt --stdin"] }

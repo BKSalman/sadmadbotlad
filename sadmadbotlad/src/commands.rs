@@ -1,7 +1,7 @@
 use std::{fs, process, sync::Arc};
 
 use hebi::prelude::*;
-use libmpv::Mpv;
+use libmpv2::Mpv;
 use tokio::sync::{
     broadcast,
     mpsc::{self, Sender},
@@ -182,7 +182,7 @@ struct MpvClient(Arc<Mpv>);
 
 impl MpvClient {
     fn next(_scope: Scope<'_>, this: This<'_, Self>) -> hebi::Result<()> {
-        if let Err(err) = this.0.playlist_next_force() {
+        if let Err(err) = this.0.command("playlist-next", &["force"]) {
             tracing::error!("Mpv Error: {:#?}", err);
             return Err(MpvClientError::MpvError(err.to_string())).map_err(hebi::Error::user);
         }
@@ -381,7 +381,7 @@ fn get_module() -> NativeModule {
                 .method("get_volume", MpvClient::get_volume)
                 .method("unpause", |_scope, this| {
                     this.0
-                        .unpause()
+                        .set_property("pause", false)
                         .map_err(|err| {
                             tracing::error!("Mpv Error: {:#?}", err);
                             MpvClientError::MpvError(err.to_string())
@@ -392,7 +392,7 @@ fn get_module() -> NativeModule {
                 })
                 .method("pause", |_scope, this| {
                     this.0
-                        .pause()
+                        .set_property("pause", true)
                         .map_err(|err| {
                             tracing::error!("Mpv Error: {:#?}", err);
                             MpvClientError::MpvError(err.to_string())

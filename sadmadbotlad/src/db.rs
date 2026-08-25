@@ -1,8 +1,10 @@
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::{APP, AlertEventType, OneShotSender};
+use crate::{AlertEventType, OneShotSender};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DatabaseError {
@@ -36,7 +38,7 @@ pub enum DatabaseError {
 
 pub enum DBMessage {
     NewEvent(AlertEventType),
-    GetEvent(i32, OneShotSender<DbEventRecord>),
+    GetEvent(i32, OneShotSender<Option<DbEventRecord>>),
     GetEvents(OneShotSender<Vec<DbEventRecord>>),
 }
 
@@ -58,8 +60,9 @@ pub struct DbEventRecord {
 }
 
 impl Store {
-    pub fn new() -> Result<Self, DatabaseError> {
-        let db = Connection::open(&APP.config.database_path)?;
+    pub fn new(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
+        let path = path.as_ref();
+        let db = Connection::open(path)?;
 
         db.execute(
             r#"

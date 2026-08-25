@@ -23,6 +23,7 @@ pub mod obs_websocket;
 pub mod song_requests;
 pub mod sr_ws_server;
 pub mod twitch;
+pub mod web;
 pub mod ws_server;
 pub mod youtube;
 
@@ -103,7 +104,7 @@ impl App {
                 cmd_delim: flags.cmd_delim.unwrap_or('!'),
                 port: flags.port.unwrap_or(3000),
                 frontend_port: flags.frontend_port.unwrap_or(8080),
-                static_path: flags.static_path.unwrap_or_default(),
+                static_path: flags.static_path.unwrap_or(".".into()),
             },
         }
     }

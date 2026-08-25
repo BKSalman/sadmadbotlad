@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use libmpv::events::{Event, PropertyData};
-use libmpv::{FileState, Mpv};
+use libmpv2::Mpv;
+use libmpv2::events::{Event, PropertyData};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use tokio::sync::oneshot;
@@ -22,6 +22,9 @@ pub enum SongRequestsError {
 
     #[error("could not get mpv instance")]
     CouldNotGetMpv,
+
+    #[error(transparent)]
+    LibMpb(#[from] libmpv2::Error),
 }
 
 #[derive(Debug)]
@@ -228,20 +231,16 @@ pub fn play_song(
     queue_sender: UnboundedSender<QueueMessages>,
     // event_sender: UnboundedSender<crate::event_handler::Event>,
 ) -> Result<(), SongRequestsError> {
-    let mut event_ctx = mpv.create_event_context();
+    let mpv_client = mpv.create_client(None)?;
 
-    event_ctx
-        .disable_deprecated_events()
-        .expect("deprecated events");
-
-    event_ctx
-        .observe_property("idle-active", libmpv::Format::Flag, 0)
-        .expect("observe property");
+    mpv_client.disable_deprecated_events()?;
+    mpv_client.observe_property("volume", libmpv2::Format::Int64, 0)?;
+    mpv_client.observe_property("demuxer-cache-state", libmpv2::Format::String, 0)?;
 
     loop {
-        let ev = event_ctx
+        let ev = mpv_client
             .wait_event(600.)
-            .unwrap_or(Err(libmpv::Error::Null));
+            .unwrap_or(Err(libmpv2::Error::Null));
 
         match ev {
             Ok(Event::PropertyChange {
@@ -254,11 +253,11 @@ pub fn play_song(
                 if let Some(song) = song_receiver.blocking_recv() {
                     tracing::info!("song: {song:#?}");
 
-                    mpv.playlist_load_files(&[(&song.url, FileState::AppendPlay, None)])
+                    mpv.command("loadfile", &[song.url.as_str(), "append"])
                         .expect("play song");
                 }
             }
-            Err(libmpv::Error::Raw(e)) => {
+            Err(libmpv2::Error::Raw(e)) => {
                 tracing::error!("Mpv Error:: {e}");
                 queue_sender.send(QueueMessages::Dequeue)?;
                 // event_sender.send(crate::event_handler::Event::MpvEvent(

@@ -9,7 +9,7 @@ use crate::{
 };
 use futures::FutureExt;
 use futures_util::{SinkExt, StreamExt};
-use libmpv::Mpv;
+use libmpv2::Mpv;
 use notify::{RecommendedWatcher, Watcher};
 use tokio::sync::{
     broadcast,
